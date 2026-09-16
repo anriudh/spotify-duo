@@ -80,12 +80,17 @@ class PlaybackWidget : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-        /** Card taps fill in a Spotify URI against this template. */
+        /**
+         * Card taps fill in a Spotify URI against this template. It must be
+         * mutable for the fill-in to apply, and Android 14+ rejects mutable
+         * PendingIntents built from implicit Intents -- hence the explicit
+         * target, which forwards to Spotify itself.
+         */
         private fun openTemplate(ctx: Context): PendingIntent =
             PendingIntent.getActivity(
                 ctx,
                 1,
-                Intent(Intent.ACTION_VIEW),
+                Intent(ctx, OpenTrackActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
             )
     }
