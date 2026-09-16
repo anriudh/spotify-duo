@@ -1,0 +1,18 @@
+{
+  "name": "spotify-duo-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute spotify-duo --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute spotify-duo --remote --file=./schema.sql",
+    "tail": "wrangler tail",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260916.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.132.0"
+  }
+}
