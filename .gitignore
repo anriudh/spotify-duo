@@ -3,3 +3,7 @@ node_modules/
 .dev.vars
 dist/
 *.log
+
+# installer/tooling detritus
+*.tmp
+inst_user_settings.tmp
