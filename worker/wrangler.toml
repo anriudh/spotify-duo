@@ -1,6 +1,6 @@
 name = "spotify-duo"
 main = "src/index.ts"
-compatibility_date = "2026-09-17"
+compatibility_date = "2026-09-16"
 
 # Client ID is not a secret (it is public in the OAuth flow).
 # The client SECRET is never set here -- see: wrangler secret put SPOTIFY_CLIENT_SECRET
@@ -10,7 +10,7 @@ SPOTIFY_CLIENT_ID = "45adb9a82f14417b9e7b1481265bb2b0"
 [[d1_databases]]
 binding = "DB"
 database_name = "spotify-duo"
-database_id = "REPLACE_WITH_ID_FROM_D1_CREATE"
+database_id = "bcbe269e-640a-41d1-8207-08ae99b65e11"
 
 [triggers]
 crons = ["* * * * *"]
