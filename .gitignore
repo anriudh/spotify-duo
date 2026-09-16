@@ -7,3 +7,11 @@ dist/
 # installer/tooling detritus
 *.tmp
 inst_user_settings.tmp
+
+# android
+local.properties
+.gradle/
+android/build/
+android/app/build/
+*.apk
+*.keystore
