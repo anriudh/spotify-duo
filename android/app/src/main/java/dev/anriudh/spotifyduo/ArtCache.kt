@@ -22,6 +22,13 @@ object ArtCache {
     private const val TARGET_PX = 200
     private const val FALLBACK_ACCENT = 0xFF1F1F23.toInt()
 
+    /**
+     * Roughly 2MB at ~33KB per album. cacheDir is cleared by the system under
+     * storage pressure anyway, but an explicit bound keeps it from quietly
+     * growing with every new album ever listened to.
+     */
+    private const val MAX_CACHED = 60
+
     data class Art(val bitmap: Bitmap?, val accent: Int)
 
     /** @param desaturate render the art grey, signalling that nobody is listening. */
@@ -29,7 +36,10 @@ object ArtCache {
         if (url.isNullOrBlank()) return Art(null, FALLBACK_ACCENT)
 
         val file = File(ctx.cacheDir, "art_${url.hashCode().toUInt()}.jpg")
-        if (!file.exists() && !download(url, file)) return Art(null, FALLBACK_ACCENT)
+        if (!file.exists()) {
+            if (!download(url, file)) return Art(null, FALLBACK_ACCENT)
+            prune(ctx.cacheDir)
+        }
 
         val bitmap = decodeSampled(file) ?: return Art(null, FALLBACK_ACCENT)
         val accent = accentOf(bitmap)
@@ -70,6 +80,15 @@ object ArtCache {
         android.util.Log.w("ArtCache", "album art download failed: $url", e)
         dest.delete()
         false
+    }
+
+    /** Drops the least recently modified art beyond the cap. */
+    private fun prune(dir: File) {
+        val files = dir.listFiles { f -> f.name.startsWith("art_") } ?: return
+        if (files.size <= MAX_CACHED) return
+        files.sortedBy { it.lastModified() }
+            .take(files.size - MAX_CACHED)
+            .forEach { it.delete() }
     }
 
     private fun decodeSampled(file: File): Bitmap? = runCatching {

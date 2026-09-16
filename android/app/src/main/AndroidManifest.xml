@@ -6,6 +6,12 @@
     <!-- Denied by default on Android 13+; requested once from MainActivity. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- Package visibility on Android 11+: without this, targeting Spotify by
+         package throws rather than opening it. -->
+    <queries>
+        <package android:name="com.spotify.music" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"

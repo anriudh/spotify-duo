@@ -102,13 +102,13 @@ class PlaybackWidget : AppWidgetProvider() {
                 views.setTextViewText(R.id.artist, "")
                 views.setTextViewText(R.id.status, ctx.lastError ?: "")
                 hideProgress(views)
-                views.setInt(R.id.card, "setBackgroundColor", 0xFF1F1F23.toInt())
+                views.setInt(R.id.tint, "setBackgroundColor", 0xFF1F1F23.toInt())
                 views.setViewVisibility(R.id.art, View.GONE)
                 return views
             }
 
             val art = ArtCache.load(ctx, user.albumArtUrl, desaturate = !user.isPlaying)
-            views.setInt(R.id.card, "setBackgroundColor", art.accent)
+            views.setInt(R.id.tint, "setBackgroundColor", art.accent)
             art.bitmap?.let { views.setImageViewBitmap(R.id.art, it) }
             views.setViewVisibility(R.id.art, if (art.bitmap != null) View.VISIBLE else View.GONE)
 
