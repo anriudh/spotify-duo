@@ -3,6 +3,7 @@ import { SCOPES, exchangeCode, fetchPlayer, fetchRecentlyPlayed, getFreshAccessT
 import type { Env, PlaybackRow, UserRow } from './types';
 
 const FORCED_REFRESH_COOLDOWN_MS = 5_000;
+const STALE_AFTER_MS = 60_000;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -92,7 +93,27 @@ async function requireUser(req: Request, env: Env): Promise<UserRow | null> {
 async function handleState(req: Request, env: Env): Promise<Response> {
   const caller = await requireUser(req, env);
   if (!caller) return new Response('Unauthorized', { status: 401 });
+  await pollIfStale(env);
   return stateResponse(env, req.headers.get('If-None-Match'));
+}
+
+/**
+ * Poll-on-read. Cloudflare's cron triggers do not fire on the Workers Free
+ * plan, so reads drive the refresh instead. This is also just better: data is
+ * fresh at the moment someone looks, rather than up to a cron interval stale.
+ *
+ * Whoever reads polls *both* accounts, so you still see your partner's true
+ * state even when their phone is off -- which was the whole reason for putting
+ * the polling server-side.
+ */
+async function pollIfStale(env: Env): Promise<void> {
+  const [users, playback] = await Promise.all([db.listUsers(env), db.listPlayback(env)]);
+  const linked = new Set(users.filter((u) => u.refresh_token).map((u) => u.id));
+  const relevant = playback.filter((p) => linked.has(p.user_id));
+  if (!relevant.length) return;
+
+  const oldest = Math.min(...relevant.map((p) => p.polled_at));
+  if (Date.now() - oldest > STALE_AFTER_MS) await pollAll(env);
 }
 
 async function handleForcedRefresh(req: Request, env: Env): Promise<Response> {
@@ -178,23 +199,26 @@ async function pollUser(env: Env, user: UserRow): Promise<void> {
   if (!token) return;
 
   const now = Date.now();
+
+  // A paused session still returns 200 here, so this covers playing and paused
+  // alike and preserves the device. 204 means no active session at all.
   const snapshot = await fetchPlayer(token);
   if (snapshot) {
-    await db.writePlayback(env, user.id, snapshot, now);
+    await db.writePlayback(env, user.id, snapshot, now, snapshot.is_playing ? now : null);
     console.log(`${user.id}: playing=${snapshot.is_playing} "${snapshot.track_name}" on ${snapshot.device_name}`);
     return;
   }
 
-  const prev = await db.getPlayback(env, user.id);
-  if (!prev?.track_uri) {
-    const seed = await fetchRecentlyPlayed(token);
-    if (seed) await db.writePlayback(env, user.id, seed, now);
-    else await db.touchPolled(env, user.id, now);
-    console.log(`${user.id}: nothing playing, seed=${seed ? `"${seed.track_name}"` : 'none'}`);
+  const recent = await fetchRecentlyPlayed(token);
+  if (recent) {
+    await db.writePlayback(env, user.id, recent, now, recent.played_at);
+    console.log(`${user.id}: idle, last played "${recent.track_name}"`);
     return;
   }
-  await db.markStopped(env, user.id, now, prev.is_playing === 1);
-  console.log(`${user.id}: stopped, keeping "${prev.track_name}"`);
+
+  const prev = await db.getPlayback(env, user.id);
+  await db.markStopped(env, user.id, now, prev?.is_playing === 1);
+  console.log(`${user.id}: idle, no listening history available`);
 }
 
 function escapeHtml(s: string): string {

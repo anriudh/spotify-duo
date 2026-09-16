@@ -43,6 +43,8 @@ export interface PlayerSnapshot {
   device_type: string | null;
   progress_ms: number;
   duration_ms: number;
+  /** When the track was actually played, from recently-played. Null for live player state. */
+  played_at: number | null;
 }
 
 export interface TokenResponse {

@@ -72,34 +72,28 @@ export async function markForced(env: Env, userId: string, at: number): Promise<
   await env.DB.prepare('UPDATE users SET last_forced_at = ? WHERE id = ?').bind(at, userId).run();
 }
 
+/** `lastActiveAt` of null leaves the existing value alone. */
 export async function writePlayback(
   env: Env,
   userId: string,
   s: PlayerSnapshot,
   now: number,
+  lastActiveAt: number | null,
 ): Promise<void> {
   await env.DB.prepare(
     `UPDATE playback
        SET is_playing = ?, track_name = ?, artist_name = ?, album_name = ?, album_art_url = ?,
            track_uri = ?, device_name = ?, device_type = ?, progress_ms = ?, duration_ms = ?,
-           polled_at = ?, last_active_at = CASE WHEN ? = 1 THEN ? ELSE last_active_at END
+           polled_at = ?, last_active_at = COALESCE(?, last_active_at)
      WHERE user_id = ?`,
   ).bind(
     s.is_playing ? 1 : 0, s.track_name, s.artist_name, s.album_name, s.album_art_url,
     s.track_uri, s.device_name, s.device_type, s.progress_ms, s.duration_ms,
-    now, s.is_playing ? 1 : 0, now, userId,
+    now, lastActiveAt, userId,
   ).run();
 }
 
-/**
- * Records that a poll happened even though there was nothing to store, so
- * "polled, found nothing" stays distinguishable from "never polled".
- */
-export async function touchPolled(env: Env, userId: string, now: number): Promise<void> {
-  await env.DB.prepare('UPDATE playback SET polled_at = ? WHERE user_id = ?').bind(now, userId).run();
-}
-
-/** Spotify returned 204: keep the last known track, just mark it stopped. */
+/** No active session and no history to fall back on: keep the last known track, mark it stopped. */
 export async function markStopped(env: Env, userId: string, now: number, wasPlaying: boolean): Promise<void> {
   await env.DB.prepare(
     `UPDATE playback

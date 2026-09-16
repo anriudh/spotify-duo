@@ -74,6 +74,7 @@ function toSnapshot(body: any): PlayerSnapshot | null {
     device_type: body.device?.type ?? null,
     progress_ms: body.progress_ms ?? 0,
     duration_ms: item.duration_ms ?? 0,
+    played_at: null,
   };
 }
 
@@ -84,7 +85,12 @@ export async function fetchPlayer(accessToken: string): Promise<PlayerSnapshot |
   return toSnapshot(await res.json());
 }
 
-/** Seeds a card on first link so it is never blank before the first play. */
+/**
+ * Authoritative source for what a user last played, and when. Consulted
+ * whenever there is no active session -- with poll-on-read there may have been
+ * a long unobserved gap in which they played and stopped, so the stored track
+ * cannot be trusted and `played_at` is the only accurate "how long ago".
+ */
 export async function fetchRecentlyPlayed(accessToken: string): Promise<PlayerSnapshot | null> {
   const res = await fetch(`${API}/me/player/recently-played?limit=1`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -92,8 +98,11 @@ export async function fetchRecentlyPlayed(accessToken: string): Promise<PlayerSn
   if (!res.ok) return null;
 
   const body = await res.json<any>();
-  const track = body?.items?.[0]?.track;
+  const item = body?.items?.[0];
+  const track = item?.track;
   if (!track?.name) return null;
+
+  const playedAt = item.played_at ? Date.parse(item.played_at) : NaN;
 
   return {
     is_playing: false,
@@ -106,5 +115,6 @@ export async function fetchRecentlyPlayed(accessToken: string): Promise<PlayerSn
     device_type: null,
     progress_ms: 0,
     duration_ms: track.duration_ms ?? 0,
+    played_at: Number.isNaN(playedAt) ? null : playedAt,
   };
 }
