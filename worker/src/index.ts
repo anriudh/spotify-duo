@@ -53,8 +53,15 @@ async function handleCallback(env: Env, url: URL): Promise<Response> {
   const user = await db.getUserByPendingState(env, state);
   if (!user) return new Response('Unrecognised state', { status: 400 });
 
-  const tok = await exchangeCode(env, code, `${url.origin}/auth/callback`);
-  if (!tok.refresh_token) return new Response('Spotify returned no refresh token', { status: 502 });
+  let tok;
+  try {
+    tok = await exchangeCode(env, code, `${url.origin}/auth/callback`);
+  } catch (err) {
+    // Surfaced rather than thrown: an opaque 1101 here is indistinguishable
+    // from the Worker being broken, and Spotify's own error names the cause.
+    return errorPage('Could not complete Spotify login', String(err));
+  }
+  if (!tok.refresh_token) return errorPage('Spotify returned no refresh token', 'Re-run the login flow.');
 
   const deviceToken = user.device_token ?? crypto.randomUUID().replace(/-/g, '');
   await db.saveLinkedTokens(
@@ -182,4 +189,16 @@ async function pollUser(env: Env, user: UserRow): Promise<void> {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+function errorPage(title: string, detail: string): Response {
+  return new Response(
+    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+     <body style="font-family:system-ui;padding:2rem;line-height:1.5">
+       <h2>${escapeHtml(title)}</h2>
+       <pre style="white-space:pre-wrap;word-break:break-word;background:#f4f4f5;
+                   padding:.75rem;border-radius:.5rem">${escapeHtml(detail)}</pre>
+     </body>`,
+    { status: 502, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+  );
 }

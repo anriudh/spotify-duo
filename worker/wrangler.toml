@@ -14,3 +14,8 @@ database_id = "bcbe269e-640a-41d1-8207-08ae99b65e11"
 
 [triggers]
 crons = ["* * * * *"]
+
+# Persists logs so a failure can be diagnosed after the fact, rather than only
+# while `wrangler tail` happens to be attached.
+[observability]
+enabled = true
