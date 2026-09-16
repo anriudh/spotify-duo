@@ -91,6 +91,14 @@ export async function writePlayback(
   ).run();
 }
 
+/**
+ * Records that a poll happened even though there was nothing to store, so
+ * "polled, found nothing" stays distinguishable from "never polled".
+ */
+export async function touchPolled(env: Env, userId: string, now: number): Promise<void> {
+  await env.DB.prepare('UPDATE playback SET polled_at = ? WHERE user_id = ?').bind(now, userId).run();
+}
+
 /** Spotify returned 204: keep the last known track, just mark it stopped. */
 export async function markStopped(env: Env, userId: string, now: number, wasPlaying: boolean): Promise<void> {
   await env.DB.prepare(

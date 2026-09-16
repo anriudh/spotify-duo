@@ -164,7 +164,13 @@ function etagFor(playback: PlaybackRow[], users: UserRow[]): string {
 
 async function pollAll(env: Env): Promise<void> {
   const users = await db.listUsers(env);
-  await Promise.all(users.map((u) => pollUser(env, u).catch(() => {})));
+  // Isolated per user so one failure cannot stop the other, but never silent:
+  // a swallowed error here looks identical to "nobody is listening".
+  await Promise.all(
+    users.map((u) =>
+      pollUser(env, u).catch((err) => console.error(`poll failed for ${u.id}:`, String(err))),
+    ),
+  );
 }
 
 async function pollUser(env: Env, user: UserRow): Promise<void> {
@@ -175,6 +181,7 @@ async function pollUser(env: Env, user: UserRow): Promise<void> {
   const snapshot = await fetchPlayer(token);
   if (snapshot) {
     await db.writePlayback(env, user.id, snapshot, now);
+    console.log(`${user.id}: playing=${snapshot.is_playing} "${snapshot.track_name}" on ${snapshot.device_name}`);
     return;
   }
 
@@ -182,9 +189,12 @@ async function pollUser(env: Env, user: UserRow): Promise<void> {
   if (!prev?.track_uri) {
     const seed = await fetchRecentlyPlayed(token);
     if (seed) await db.writePlayback(env, user.id, seed, now);
+    else await db.touchPolled(env, user.id, now);
+    console.log(`${user.id}: nothing playing, seed=${seed ? `"${seed.track_name}"` : 'none'}`);
     return;
   }
   await db.markStopped(env, user.id, now, prev.is_playing === 1);
+  console.log(`${user.id}: stopped, keeping "${prev.track_name}"`);
 }
 
 function escapeHtml(s: string): string {
