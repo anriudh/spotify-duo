@@ -25,10 +25,22 @@ object RefreshScheduler {
      * signal to listen for -- so they can only be discovered by asking. This is
      * the worst-case delay before either is noticed.
      */
-    private const val PLAYING_INTERVAL_MS = 45_000L
+    const val POLL_EVERY_MS = 45_000L
+
+    /**
+     * How often the widget is redrawn while playing.
+     *
+     * A ProgressBar in a widget cannot advance on its own: widget views are
+     * drawn by the launcher, not by this app, so nothing in them executes.
+     * Chronometer is a special case the system ticks for us; ProgressBar has no
+     * equivalent. Redrawing on this cadence is therefore the only way to keep
+     * the bar in step with the clock. It reuses cached state and cached art, so
+     * most ticks cost no network at all.
+     */
+    private const val TICK_EVERY_MS = 15_000L
 
     /** Floor, so a slightly-off duration cannot spin the alarm in a tight loop. */
-    private const val MIN_DELAY_MS = 15_000L
+    private const val MIN_DELAY_MS = 5_000L
 
     fun ensureScheduled(ctx: Context) {
         if (hasWidgets(ctx)) scheduleIn(ctx, IDLE_INTERVAL_MS) else cancel(ctx)
@@ -53,7 +65,7 @@ object RefreshScheduler {
             IDLE_INTERVAL_MS
         } else {
             val untilSoonestEnd = playing.minOf { it.durationMs - it.elapsedMsAt(now) + 2_000L }
-            minOf(untilSoonestEnd, PLAYING_INTERVAL_MS)
+            minOf(untilSoonestEnd, TICK_EVERY_MS)
         }
 
         scheduleIn(ctx, delay.coerceIn(MIN_DELAY_MS, IDLE_INTERVAL_MS))

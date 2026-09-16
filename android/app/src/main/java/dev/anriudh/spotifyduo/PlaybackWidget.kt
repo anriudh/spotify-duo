@@ -44,11 +44,13 @@ class PlaybackWidget : AppWidgetProvider() {
                 // Keeps the chain alive if the render below fails; a successful
                 // render replaces this with playback-aware timing.
                 RefreshScheduler.ensureScheduled(ctx)
-                // Deliberately polls regardless of screen state. Skipping while
-                // the screen was off saved little and left the widget showing a
-                // finished track the moment it was next looked at. Doze already
-                // throttles this when the phone is genuinely idle.
-                runOffMainThread(ctx, hitNetwork = true, forced = false)
+                // Most ticks only redraw, advancing the progress bar from state
+                // we already hold. The network is touched on the slower cadence.
+                // Deliberately runs regardless of screen state: skipping while
+                // the screen was off left a finished track on screen the moment
+                // it was next looked at, and Doze already throttles the idle case.
+                val sinceFetch = System.currentTimeMillis() - ctx.cachedAtLocal
+                runOffMainThread(ctx, hitNetwork = sinceFetch >= RefreshScheduler.POLL_EVERY_MS, forced = false)
             }
         }
     }
