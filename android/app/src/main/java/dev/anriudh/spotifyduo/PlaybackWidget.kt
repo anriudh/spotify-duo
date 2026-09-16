@@ -7,7 +7,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.PowerManager
 import android.os.SystemClock
 import android.text.format.DateUtils
 import android.view.View
@@ -42,13 +41,14 @@ class PlaybackWidget : AppWidgetProvider() {
             ACTION_REFRESH -> runOffMainThread(ctx, hitNetwork = true, forced = true)
 
             ACTION_ALARM -> {
-                // Keeps the chain alive even when the render below is skipped;
-                // a successful render replaces this with track-end timing.
+                // Keeps the chain alive if the render below fails; a successful
+                // render replaces this with playback-aware timing.
                 RefreshScheduler.ensureScheduled(ctx)
-                // The widget can only be seen with the screen on, so polling
-                // while it is off spends battery and data for nothing.
-                val power = ctx.getSystemService(PowerManager::class.java)
-                if (power?.isInteractive == true) runOffMainThread(ctx, hitNetwork = true, forced = false)
+                // Deliberately polls regardless of screen state. Skipping while
+                // the screen was off saved little and left the widget showing a
+                // finished track the moment it was next looked at. Doze already
+                // throttles this when the phone is genuinely idle.
+                runOffMainThread(ctx, hitNetwork = true, forced = false)
             }
         }
     }
@@ -82,9 +82,7 @@ class PlaybackWidget : AppWidgetProvider() {
             val mgr = AppWidgetManager.getInstance(ctx)
             val views = buildViews(ctx, state)
             widgetIds(ctx, mgr).forEach { mgr.updateAppWidget(it, views) }
-            // Wake when the track is due to end, so the next song appears as it
-            // starts rather than up to a fixed interval later.
-            RefreshScheduler.scheduleForTrackEnd(ctx, state)
+            RefreshScheduler.scheduleNext(ctx, state)
         }
 
         private fun buildViews(ctx: Context, state: DuoState?): RemoteViews {
