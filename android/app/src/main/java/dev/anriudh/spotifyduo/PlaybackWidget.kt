@@ -44,13 +44,10 @@ class PlaybackWidget : AppWidgetProvider() {
                 // Keeps the chain alive if the render below fails; a successful
                 // render replaces this with playback-aware timing.
                 RefreshScheduler.ensureScheduled(ctx)
-                // Most ticks only redraw, advancing the progress bar from state
-                // we already hold. The network is touched on the slower cadence.
                 // Deliberately runs regardless of screen state: skipping while
                 // the screen was off left a finished track on screen the moment
                 // it was next looked at, and Doze already throttles the idle case.
-                val sinceFetch = System.currentTimeMillis() - ctx.cachedAtLocal
-                runOffMainThread(ctx, hitNetwork = sinceFetch >= RefreshScheduler.POLL_EVERY_MS, forced = false)
+                runOffMainThread(ctx, hitNetwork = true, forced = false)
             }
         }
     }
@@ -66,10 +63,15 @@ class PlaybackWidget : AppWidgetProvider() {
         val pending = goAsync()
         Thread {
             try {
-                renderAll(ctx, StateRepository.cached(ctx))
-                if (hitNetwork) {
-                    renderAll(ctx, StateRepository.refresh(ctx, forced) ?: StateRepository.cached(ctx))
+                // Renders exactly once: every render decodes album art and
+                // re-arms the alarm, so drawing cached state first and then
+                // again after the fetch doubled that work on every tick.
+                val state = if (hitNetwork) {
+                    StateRepository.refresh(ctx, forced) ?: StateRepository.cached(ctx)
+                } else {
+                    StateRepository.cached(ctx)
                 }
+                renderAll(ctx, state)
             } finally {
                 pending.finish()
             }
@@ -92,6 +94,7 @@ class PlaybackWidget : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.refresh, broadcast(ctx, ACTION_REFRESH))
             views.setOnClickPendingIntent(R.id.who, broadcast(ctx, ACTION_TOGGLE))
 
+            val now = state?.now() ?: System.currentTimeMillis()
             val user = pickUser(ctx, state)
             if (user == null) {
                 views.setTextViewText(R.id.who, "—")
@@ -127,7 +130,6 @@ class PlaybackWidget : AppWidgetProvider() {
                 else -> {
                     views.setTextViewText(R.id.track, user.trackName)
                     views.setTextViewText(R.id.artist, user.artistName ?: "")
-                    val now = state?.now() ?: System.currentTimeMillis()
                     when {
                         user.hasLikelyEnded(now) -> {
                             // Finished, and we do not know what is playing now.
@@ -153,7 +155,7 @@ class PlaybackWidget : AppWidgetProvider() {
                 }
             }
 
-            views.setTextViewText(R.id.status, statusLine(user, state?.now() ?: System.currentTimeMillis()))
+            views.setTextViewText(R.id.status, statusLine(user, now))
             user.trackUri?.let {
                 views.setOnClickPendingIntent(R.id.card, openTrack(ctx, it))
             }

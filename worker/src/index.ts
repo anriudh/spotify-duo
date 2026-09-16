@@ -3,7 +3,14 @@ import { SCOPES, exchangeCode, fetchPlayer, fetchRecentlyPlayed, getFreshAccessT
 import type { Env, PlaybackRow, UserRow } from './types';
 
 const FORCED_REFRESH_COOLDOWN_MS = 5_000;
-const STALE_AFTER_MS = 60_000;
+/**
+ * How stale stored playback may be before a read re-polls Spotify.
+ *
+ * This bounds one half of end-to-end latency; the phone's poll interval bounds
+ * the other. Raising it here cannot be compensated for on the device, since a
+ * faster client poll would just be served the same stale row.
+ */
+const STALE_AFTER_MS = 15_000;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -90,30 +97,25 @@ async function requireUser(req: Request, env: Env): Promise<UserRow | null> {
   return db.getUserByDeviceToken(env, auth.slice(7));
 }
 
+/**
+ * Poll-on-read: a read refreshes from Spotify when the stored rows are stale,
+ * so data is fresh at the moment someone actually looks rather than however
+ * long ago a background job last ran.
+ *
+ * Whoever reads polls *both* accounts, so you still see your partner's true
+ * state even when their phone is off -- which is the whole reason the polling
+ * lives server-side.
+ */
 async function handleState(req: Request, env: Env): Promise<Response> {
   const caller = await requireUser(req, env);
   if (!caller) return new Response('Unauthorized', { status: 401 });
-  await pollIfStale(env);
-  return stateResponse(env, req.headers.get('If-None-Match'));
-}
 
-/**
- * Poll-on-read. Cloudflare's cron triggers do not fire on the Workers Free
- * plan, so reads drive the refresh instead. This is also just better: data is
- * fresh at the moment someone looks, rather than up to a cron interval stale.
- *
- * Whoever reads polls *both* accounts, so you still see your partner's true
- * state even when their phone is off -- which was the whole reason for putting
- * the polling server-side.
- */
-async function pollIfStale(env: Env): Promise<void> {
-  const [users, playback] = await Promise.all([db.listUsers(env), db.listPlayback(env)]);
-  const linked = new Set(users.filter((u) => u.refresh_token).map((u) => u.id));
-  const relevant = playback.filter((p) => linked.has(p.user_id));
-  if (!relevant.length) return;
-
-  const oldest = Math.min(...relevant.map((p) => p.polled_at));
-  if (Date.now() - oldest > STALE_AFTER_MS) await pollAll(env);
+  let rows = await loadRows(env);
+  if (isStale(rows)) {
+    await pollAll(env);
+    rows = await loadRows(env);
+  }
+  return stateResponse(rows, req.headers.get('If-None-Match'));
 }
 
 async function handleForcedRefresh(req: Request, env: Env): Promise<Response> {
@@ -127,11 +129,28 @@ async function handleForcedRefresh(req: Request, env: Env): Promise<Response> {
     await db.markForced(env, caller.id, now);
     await pollAll(env);
   }
-  return stateResponse(env, null);
+  return stateResponse(await loadRows(env), null);
 }
 
-async function stateResponse(env: Env, ifNoneMatch: string | null): Promise<Response> {
+interface Rows {
+  users: UserRow[];
+  playback: PlaybackRow[];
+}
+
+async function loadRows(env: Env): Promise<Rows> {
   const [users, playback] = await Promise.all([db.listUsers(env), db.listPlayback(env)]);
+  return { users, playback };
+}
+
+/** Only linked users count; an unlinked one has polled_at 0 forever. */
+function isStale({ users, playback }: Rows): boolean {
+  const linked = new Set(users.filter((u) => u.refresh_token).map((u) => u.id));
+  const relevant = playback.filter((p) => linked.has(p.user_id));
+  if (!relevant.length) return false;
+  return Date.now() - Math.min(...relevant.map((p) => p.polled_at)) > STALE_AFTER_MS;
+}
+
+function stateResponse({ users, playback }: Rows, ifNoneMatch: string | null): Response {
   const byId = new Map(playback.map((p) => [p.user_id, p]));
 
   const payload = users.map((u) => {

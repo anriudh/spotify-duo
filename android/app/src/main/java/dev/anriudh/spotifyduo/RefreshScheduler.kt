@@ -11,31 +11,29 @@ import android.os.Build
  * Drives the widget's refresh with a self-rescheduling alarm chain.
  *
  * setRepeating is inexact and gets batched, so each fire schedules the next.
- * Doze throttles these to roughly 9 minutes, but Doze only engages with the
- * screen off and the phone stationary -- exactly when the widget is invisible
- * and the poll is skipped anyway.
+ * Doze throttles these to roughly 9 minutes, which is the intended behaviour:
+ * it is the battery saving for a genuinely idle phone, provided by the system
+ * rather than by us guessing from screen state.
  */
 object RefreshScheduler {
 
-    const val IDLE_INTERVAL_MS = 4 * 60 * 1000L
+    private const val IDLE_INTERVAL_MS = 4 * 60 * 1000L
 
     /**
-     * Cadence while someone is actually listening. Stopping playback or
-     * skipping to another track cannot be predicted or detected -- there is no
-     * signal to listen for -- so they can only be discovered by asking. This is
-     * the worst-case delay before either is noticed.
-     */
-    const val POLL_EVERY_MS = 45_000L
-
-    /**
-     * How often the widget is redrawn while playing.
+     * How often the widget is redrawn while playing, and equally how often it
+     * polls -- the two are deliberately the same.
      *
      * A ProgressBar in a widget cannot advance on its own: widget views are
      * drawn by the launcher, not by this app, so nothing in them executes.
-     * Chronometer is a special case the system ticks for us; ProgressBar has no
+     * Chronometer is special-cased by the system; ProgressBar has no
      * equivalent. Redrawing on this cadence is therefore the only way to keep
-     * the bar in step with the clock. It reuses cached state and cached art, so
-     * most ticks cost no network at all.
+     * the bar in step with the clock.
+     *
+     * Since those wakeups happen regardless, polling on the same tick costs no
+     * extra alarms -- it only stops skipping the network. Going lower would add
+     * wakeups for a few seconds of latency, a poor trade on battery, and would
+     * be wasted anyway unless the Worker's own staleness window came down to
+     * match.
      */
     private const val TICK_EVERY_MS = 15_000L
 

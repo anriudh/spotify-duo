@@ -16,7 +16,7 @@ var Context.deviceToken: String
     get() = prefs().getString("device_token", "")!!
     set(v) = prefs().edit().putString("device_token", v.trim()).apply()
 
-/** Which card is "you", so the *other* person leads the stack. */
+/** Which person this phone is, so the widget can lead with the other one. */
 var Context.selfId: String
     get() = prefs().getString("self_id", "")!!
     set(v) = prefs().edit().putString("self_id", v.trim()).apply()

@@ -49,8 +49,6 @@ data class DuoState(
 ) {
     fun now(): Long = System.currentTimeMillis() + clockSkewMs
 
-    fun of(id: String): UserPlayback? = users.firstOrNull { it.id == id }
-
     companion object {
         fun parse(json: String, receivedAtLocal: Long): DuoState {
             val root = JSONObject(json)
