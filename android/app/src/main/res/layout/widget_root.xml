@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- StackView is the only RemoteViews collection that responds to swipes,
+         which is why it is used here rather than AdapterViewFlipper. -->
+    <StackView
+        android:id="@+id/stack"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:loopViews="true" />
+
+    <TextView
+        android:id="@+id/empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#1F1F23"
+        android:gravity="center"
+        android:padding="16dp"
+        android:text="@string/widget_empty"
+        android:textColor="#E4E4E7"
+        android:textSize="13sp" />
+
+    <ImageButton
+        android:id="@+id/refresh"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="6dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/refresh"
+        android:padding="8dp"
+        android:src="@drawable/ic_refresh" />
+</FrameLayout>
