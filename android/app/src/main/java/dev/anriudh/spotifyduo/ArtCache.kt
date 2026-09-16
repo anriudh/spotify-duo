@@ -64,7 +64,10 @@ object ArtCache {
             dest.outputStream().use { output -> input.copyTo(output) }
         }
         true
-    }.getOrElse {
+    }.getOrElse { e ->
+        // Never silent: a swallowed failure here is indistinguishable from a
+        // track genuinely having no artwork, which is painful to diagnose.
+        android.util.Log.w("ArtCache", "album art download failed: $url", e)
         dest.delete()
         false
     }

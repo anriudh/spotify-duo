@@ -34,10 +34,10 @@ var Context.cachedAtLocal: Long
     get() = prefs().getLong("cached_at_local", 0L)
     set(v) = prefs().edit().putLong("cached_at_local", v).apply()
 
-/** Set by the refresh button so the factory knows to POST /refresh, not GET /state. */
-var Context.pendingForcedRefresh: Boolean
-    get() = prefs().getBoolean("pending_forced", false)
-    set(v) = prefs().edit().putBoolean("pending_forced", v).apply()
+/** Which card the widget is showing. Defaults to the partner, who is the point. */
+var Context.showingSelf: Boolean
+    get() = prefs().getBoolean("showing_self", false)
+    set(v) = prefs().edit().putBoolean("showing_self", v).apply()
 
 var Context.lastError: String?
     get() = prefs().getString("last_error", null)

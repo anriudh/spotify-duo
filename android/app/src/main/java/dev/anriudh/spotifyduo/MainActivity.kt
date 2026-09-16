@@ -76,9 +76,9 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val state = StateRepository.refresh(this, forced = true)
             val text = describe(state)
+            PlaybackWidget.renderAll(this, state)
             runOnUiThread {
                 result.text = text
-                PlaybackWidget.invalidateData(this)
                 RefreshScheduler.ensureScheduled(this)
             }
         }.start()
