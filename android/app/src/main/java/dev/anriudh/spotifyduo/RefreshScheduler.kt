@@ -8,29 +8,46 @@ import android.content.Intent
 import android.os.Build
 
 /**
- * Drives the widget's periodic refresh with a self-rescheduling alarm chain.
+ * Drives the widget's refresh with a self-rescheduling alarm chain.
  *
- * setRepeating is inexact and gets batched, so each fire schedules the next one
- * instead. Doze throttles these to roughly 9 minutes, but Doze only engages
- * with the screen off and the phone stationary -- exactly when the widget is
- * invisible and the poll is skipped anyway.
+ * setRepeating is inexact and gets batched, so each fire schedules the next.
+ * Doze throttles these to roughly 9 minutes, but Doze only engages with the
+ * screen off and the phone stationary -- exactly when the widget is invisible
+ * and the poll is skipped anyway.
  */
 object RefreshScheduler {
 
-    private const val INTERVAL_MS = 4 * 60 * 1000L
+    const val IDLE_INTERVAL_MS = 4 * 60 * 1000L
+
+    /** Floor, so a slightly-off duration cannot spin the alarm in a tight loop. */
+    private const val MIN_DELAY_MS = 15_000L
 
     fun ensureScheduled(ctx: Context) {
-        if (hasWidgets(ctx)) schedule(ctx) else cancel(ctx)
+        if (hasWidgets(ctx)) scheduleIn(ctx, IDLE_INTERVAL_MS) else cancel(ctx)
     }
 
-    fun schedule(ctx: Context) {
+    /**
+     * Wakes when the current track is due to end, rather than on a fixed
+     * cadence. Without this the widget keeps showing the finished track while
+     * its Chronometer counts past the duration, which reads as live but is not.
+     */
+    fun scheduleForTrackEnd(ctx: Context, state: DuoState?) {
+        val now = state?.now() ?: System.currentTimeMillis()
+        val soonestEnd = state?.users
+            ?.filter { it.isPlaying && it.durationMs > 0L }
+            ?.minOfOrNull { it.durationMs - it.elapsedMsAt(now) + 2_000L }
+
+        scheduleIn(ctx, (soonestEnd ?: IDLE_INTERVAL_MS).coerceIn(MIN_DELAY_MS, IDLE_INTERVAL_MS))
+    }
+
+    fun scheduleIn(ctx: Context, delayMs: Long) {
         if (!hasWidgets(ctx)) return
         val alarms = ctx.getSystemService(AlarmManager::class.java) ?: return
-        val at = System.currentTimeMillis() + INTERVAL_MS
+        val at = System.currentTimeMillis() + delayMs
         val pending = alarmIntent(ctx)
 
         // SCHEDULE_EXACT_ALARM is denied by default on Android 13+. Degrade to an
-        // inexact alarm rather than throwing; a few minutes of drift is harmless.
+        // inexact alarm rather than throwing; a little drift is harmless.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarms.canScheduleExactAlarms()) {
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
         } else {

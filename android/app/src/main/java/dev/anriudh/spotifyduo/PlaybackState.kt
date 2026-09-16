@@ -27,6 +27,15 @@ data class UserPlayback(
     fun elapsedMsAt(now: Long): Long =
         if (!isPlaying) progressMs
         else (progressMs + (now - polledAt)).coerceIn(0L, durationMs.coerceAtLeast(0L))
+
+    /**
+     * The track has run past its own duration since we last polled, so it has
+     * certainly finished -- but we do not yet know what replaced it. The widget
+     * must stop presenting it as currently playing at this point, otherwise it
+     * shows a finished song with a clock ticking past the end of it.
+     */
+    fun hasLikelyEnded(now: Long): Boolean =
+        isPlaying && durationMs > 0L && (progressMs + (now - polledAt)) >= durationMs
 }
 
 data class DuoState(

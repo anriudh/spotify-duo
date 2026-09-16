@@ -42,7 +42,9 @@ class PlaybackWidget : AppWidgetProvider() {
             ACTION_REFRESH -> runOffMainThread(ctx, hitNetwork = true, forced = true)
 
             ACTION_ALARM -> {
-                RefreshScheduler.schedule(ctx)
+                // Keeps the chain alive even when the render below is skipped;
+                // a successful render replaces this with track-end timing.
+                RefreshScheduler.ensureScheduled(ctx)
                 // The widget can only be seen with the screen on, so polling
                 // while it is off spends battery and data for nothing.
                 val power = ctx.getSystemService(PowerManager::class.java)
@@ -80,6 +82,9 @@ class PlaybackWidget : AppWidgetProvider() {
             val mgr = AppWidgetManager.getInstance(ctx)
             val views = buildViews(ctx, state)
             widgetIds(ctx, mgr).forEach { mgr.updateAppWidget(it, views) }
+            // Wake when the track is due to end, so the next song appears as it
+            // starts rather than up to a fixed interval later.
+            RefreshScheduler.scheduleForTrackEnd(ctx, state)
         }
 
         private fun buildViews(ctx: Context, state: DuoState?): RemoteViews {
@@ -123,16 +128,27 @@ class PlaybackWidget : AppWidgetProvider() {
                     views.setTextViewText(R.id.track, user.trackName)
                     views.setTextViewText(R.id.artist, user.artistName ?: "")
                     val now = state?.now() ?: System.currentTimeMillis()
-                    if (user.isPlaying && user.durationMs > 0L) {
-                        val elapsed = user.elapsedMsAt(now)
-                        views.setViewVisibility(R.id.progress, View.VISIBLE)
-                        views.setViewVisibility(R.id.elapsed, View.VISIBLE)
-                        views.setProgressBar(R.id.progress, user.durationMs.toInt(), elapsed.toInt(), false)
-                        // Chronometer ticks on its own, keeping elapsed time live
-                        // between refreshes without redrawing the widget.
-                        views.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime() - elapsed, null, true)
-                    } else {
-                        hideProgress(views)
+                    when {
+                        user.hasLikelyEnded(now) -> {
+                            // Finished, and we do not know what is playing now.
+                            // Show it complete and stopped rather than ticking on.
+                            views.setViewVisibility(R.id.progress, View.VISIBLE)
+                            views.setViewVisibility(R.id.elapsed, View.GONE)
+                            views.setProgressBar(R.id.progress, 100, 100, false)
+                            views.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime(), null, false)
+                        }
+
+                        user.isPlaying && user.durationMs > 0L -> {
+                            val elapsed = user.elapsedMsAt(now)
+                            views.setViewVisibility(R.id.progress, View.VISIBLE)
+                            views.setViewVisibility(R.id.elapsed, View.VISIBLE)
+                            views.setProgressBar(R.id.progress, user.durationMs.toInt(), elapsed.toInt(), false)
+                            // Chronometer ticks on its own, keeping elapsed time live
+                            // between refreshes without redrawing the widget.
+                            views.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime() - elapsed, null, true)
+                        }
+
+                        else -> hideProgress(views)
                     }
                 }
             }
@@ -161,6 +177,7 @@ class PlaybackWidget : AppWidgetProvider() {
 
         private fun statusLine(user: UserPlayback, now: Long): String = when {
             user.needsLogin -> ""
+            user.hasLikelyEnded(now) -> "track ended · checking…"
             user.isPlaying -> user.deviceName?.let { "on $it" } ?: "playing"
             user.lastActiveAt != null ->
                 "last played " + DateUtils.getRelativeTimeSpanString(user.lastActiveAt, now, DateUtils.MINUTE_IN_MILLIS)
