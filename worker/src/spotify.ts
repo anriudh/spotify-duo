@@ -52,9 +52,14 @@ export async function getFreshAccessToken(env: Env, user: UserRow): Promise<stri
   return tok.access_token;
 }
 
+/**
+ * Largest available, normally 640px. The widget decodes it *down* to its own
+ * size; detail has to come from the source, and the old 300px pick was being
+ * upscaled on screen.
+ */
 function pickArt(images: Array<{ url: string; width: number }> | undefined): string | null {
   if (!images?.length) return null;
-  return (images.find((i) => i.width === 300) ?? images[0])!.url;
+  return images.reduce((best, i) => (i.width > best.width ? i : best)).url;
 }
 
 /** Handles tracks, podcast episodes and ads without special-casing at the call site. */
