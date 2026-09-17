@@ -6,12 +6,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Talks to the Worker's /state and /refresh endpoints and keeps the last good
- * payload on disk, so the widget still renders while offline.
+ * Talks to the Worker and keeps the last good payload on disk, so the widget
+ * still renders while offline.
  *
- * Every call here blocks. Only invoke it from a binder or background thread --
- * RemoteViewsFactory.onDataSetChanged is explicitly allowed to block, which is
- * where the normal refresh happens.
+ * Every call here blocks. Only invoke it from a background thread; the widget
+ * does so via goAsync, the setup screen via a plain Thread.
  */
 object StateRepository {
 
@@ -30,35 +29,8 @@ object StateRepository {
      */
     fun setDisplayName(ctx: Context, name: String): DuoState? {
         if (!ctx.isConfigured) return null
-        val conn = (URL(ctx.baseUrl + "/me").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = TIMEOUT_MS
-            readTimeout = TIMEOUT_MS
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer ${ctx.deviceToken}")
-            setRequestProperty("Content-Type", "application/json")
-        }
-        return try {
-            conn.outputStream.use {
-                it.write(org.json.JSONObject().put("display_name", name).toString().toByteArray())
-            }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                ctx.lastError = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Server returned ${conn.responseCode}"
-                return null
-            }
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val receivedAt = System.currentTimeMillis()
-            ctx.cachedStateJson = body
-            ctx.cachedAtLocal = receivedAt
-            conn.getHeaderField("ETag")?.let { ctx.etag = it }
-            ctx.lastError = null
-            DuoState.parse(body, receivedAt)
-        } catch (e: IOException) {
-            ctx.lastError = e.message ?: "Network error"
-            null
-        } finally {
-            conn.disconnect()
-        }
+        val body = org.json.JSONObject().put("display_name", name).toString()
+        return request(ctx, "/me", "POST", body = body, useEtag = false)
     }
 
     /**
@@ -71,33 +43,44 @@ object StateRepository {
             ctx.lastError = "Not set up yet"
             return null
         }
+        return if (forced) request(ctx, "/refresh", "POST", useEtag = false)
+        else request(ctx, "/state", "GET", useEtag = true)
+    }
 
-        val path = if (forced) "/refresh" else "/state"
+    /**
+     * One round trip. A 200 replaces the cache; a 304 means the cache is
+     * already correct; anything else records the error and serves the cache.
+     */
+    private fun request(ctx: Context, path: String, method: String, body: String? = null, useEtag: Boolean): DuoState? {
         val conn = (URL(ctx.baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = if (forced) "POST" else "GET"
+            requestMethod = method
             connectTimeout = TIMEOUT_MS
             readTimeout = TIMEOUT_MS
             setRequestProperty("Authorization", "Bearer ${ctx.deviceToken}")
-            // A 304 means nothing changed, so the cache is already correct.
-            if (!forced) ctx.etag?.let { setRequestProperty("If-None-Match", it) }
+            if (useEtag) ctx.etag?.let { setRequestProperty("If-None-Match", it) }
+            if (body != null) {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
         }
 
         return try {
+            body?.let { b -> conn.outputStream.use { it.write(b.toByteArray()) } }
             when (val code = conn.responseCode) {
-                HttpURLConnection.HTTP_NOT_MODIFIED -> {
-                    ctx.lastError = null
-                    cached(ctx)
-                }
-
                 HttpURLConnection.HTTP_OK -> {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
                     val receivedAt = System.currentTimeMillis()
-                    val state = DuoState.parse(body, receivedAt)
-                    ctx.cachedStateJson = body
+                    val state = DuoState.parse(text, receivedAt)
+                    ctx.cachedStateJson = text
                     ctx.cachedAtLocal = receivedAt
                     conn.getHeaderField("ETag")?.let { ctx.etag = it }
                     ctx.lastError = null
                     state
+                }
+
+                HttpURLConnection.HTTP_NOT_MODIFIED -> {
+                    ctx.lastError = null
+                    cached(ctx)
                 }
 
                 HttpURLConnection.HTTP_UNAUTHORIZED -> {
@@ -106,7 +89,9 @@ object StateRepository {
                 }
 
                 else -> {
-                    ctx.lastError = "Server returned $code"
+                    // The Worker's 4xx bodies are short and human-readable.
+                    ctx.lastError = conn.errorStream?.bufferedReader()?.use { it.readText() }
+                        ?.takeIf { it.isNotBlank() } ?: "Server returned $code"
                     cached(ctx)
                 }
             }

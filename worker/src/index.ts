@@ -187,12 +187,9 @@ function stateResponse({ users, playback }: Rows, ifNoneMatch: string | null): R
       is_playing: p ? p.is_playing === 1 : false,
       track_name: p?.track_name ?? null,
       artist_name: p?.artist_name ?? null,
-      album_name: p?.album_name ?? null,
       album_art_url: p?.album_art_url ?? null,
-      track_uri: p?.track_uri ?? null,
       album_uri: p?.album_uri ?? null,
       device_name: p?.device_name ?? null,
-      device_type: p?.device_type ?? null,
       progress_ms: p?.progress_ms ?? null,
       duration_ms: p?.duration_ms ?? null,
       polled_at: p?.polled_at ?? 0,
@@ -248,6 +245,10 @@ async function pollUser(env: Env, user: UserRow): Promise<void> {
   // A paused session still returns 200 here, so this covers playing and paused
   // alike and preserves the device. 204 means no active session at all.
   const snapshot = await fetchPlayer(token);
+  if (snapshot === undefined) {
+    console.warn(`${user.id}: player request failed, keeping stored state`);
+    return;
+  }
   if (snapshot) {
     await db.writePlayback(env, user.id, snapshot, now, snapshot.is_playing ? now : null);
     console.log(`${user.id}: playing=${snapshot.is_playing} "${snapshot.track_name}" on ${snapshot.device_name}`);

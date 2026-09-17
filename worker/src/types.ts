@@ -37,7 +37,7 @@ export interface PlayerSnapshot {
   is_playing: boolean;
   track_name: string;
   artist_name: string;
-  album_name: string;
+  album_name: string | null;
   album_art_url: string | null;
   track_uri: string;
   album_uri: string | null;

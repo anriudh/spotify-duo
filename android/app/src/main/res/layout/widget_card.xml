@@ -7,13 +7,6 @@
     android:clipToOutline="true"
     android:outlineProvider="background">
 
-    <!-- Album-derived tint lives on its own layer: setting a background colour
-         on the root would replace the rounded drawable and square the corners. -->
-    <FrameLayout
-        android:id="@+id/tint"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
     <!-- Art is decoded small and stretched on purpose: it sits behind a scrim,
          so the softness reads as intentional and the bitmap stays well under
          the RemoteViews Binder limit. -->

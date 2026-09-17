@@ -84,10 +84,15 @@ function toSnapshot(body: any): PlayerSnapshot | null {
   };
 }
 
-/** GET /me/player. Returns null when nothing is playing (204) or on a transient error. */
-export async function fetchPlayer(accessToken: string): Promise<PlayerSnapshot | null> {
+/**
+ * GET /me/player. Null means no active session (204). Undefined means Spotify
+ * failed to answer, which must not be mistaken for "stopped": the caller
+ * should leave the stored row alone rather than fall back to history.
+ */
+export async function fetchPlayer(accessToken: string): Promise<PlayerSnapshot | null | undefined> {
   const res = await fetch(`${API}/me/player`, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (res.status === 204 || !res.ok) return null;
+  if (res.status === 204) return null;
+  if (!res.ok) return undefined;
   return toSnapshot(await res.json());
 }
 

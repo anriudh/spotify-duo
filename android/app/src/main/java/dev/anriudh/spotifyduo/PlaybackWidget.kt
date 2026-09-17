@@ -109,7 +109,6 @@ class PlaybackWidget : AppWidgetProvider() {
                 views.setTextViewText(R.id.artist, "")
                 views.setTextViewText(R.id.status, ctx.lastError ?: "")
                 hideProgress(views)
-                views.setInt(R.id.tint, "setBackgroundColor", 0xFF1F1F23.toInt())
                 views.setViewVisibility(R.id.art, View.GONE)
                 return views
             }
@@ -120,12 +119,11 @@ class PlaybackWidget : AppWidgetProvider() {
             val art = ArtCache.load(
                 ctx, user.albumArtUrl,
                 desaturate = !user.isPlaying,
-                frost = frostFor(ctx, opts, widgetId, user, showsBar, compact),
+                frost = frostFor(ctx, opts, user, showsBar, compact),
             )
             applyCompact(ctx, views, compact)
-            views.setInt(R.id.tint, "setBackgroundColor", art.accent)
-            art.bitmap?.let { views.setImageViewBitmap(R.id.art, it) }
-            views.setViewVisibility(R.id.art, if (art.bitmap != null) View.VISIBLE else View.GONE)
+            art?.let { views.setImageViewBitmap(R.id.art, it) }
+            views.setViewVisibility(R.id.art, if (art != null) View.VISIBLE else View.GONE)
 
             // Own card says "you"; the custom name only ever shows on the partner's phone.
             views.setTextViewText(R.id.who, if (user.id == ctx.selfId) "you" else user.displayName)
@@ -199,19 +197,15 @@ class PlaybackWidget : AppWidgetProvider() {
         private fun frostFor(
             ctx: Context,
             opts: Bundle,
-            widgetId: Int,
             user: UserPlayback,
             showsBar: Boolean,
             compact: Boolean,
         ): ArtCache.Frost? {
             if (!user.hasTrack) return null
             val dm = ctx.resources.displayMetrics
-            val cardWdp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
-            val cardHdp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
-            val cardW = cardWdp * dm.density
-            val cardH = cardHdp * dm.density
+            val cardW = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) * dm.density
+            val cardH = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT) * dm.density
             if (cardW <= 0f || cardH <= 0f) return null
-            android.util.Log.d("SpotifyDuo", "widget $widgetId ${cardWdp}x${cardHdp}dp compact=$compact")
 
             fun dp(v: Float) = v * dm.density
             fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, dm)

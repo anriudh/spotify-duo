@@ -3,8 +3,6 @@ package dev.anriudh.spotifyduo
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
-import androidx.palette.graphics.Palette
 import java.io.File
 import java.net.URL
 
@@ -21,7 +19,6 @@ import java.net.URL
 object ArtCache {
 
     private const val TARGET_PX = 400
-    private const val FALLBACK_ACCENT = 0xFF1F1F23.toInt()
 
     /**
      * Roughly 3MB at ~45KB per 640px album (measured). cacheDir is cleared by the system
@@ -29,8 +26,6 @@ object ArtCache {
      * growing with every new album ever listened to.
      */
     private const val MAX_CACHED = 60
-
-    data class Art(val bitmap: Bitmap?, val accent: Int)
 
     /**
      * Where to frost, in *card* pixels: the rectangle the text occupies on
@@ -42,20 +37,20 @@ object ArtCache {
     /**
      * @param desaturate render the art grey, signalling that nobody is listening.
      * @param frost region to blur behind the text, or null for untouched art.
+     * @return null when there is no art or it could not be fetched; the card's own background shows.
      */
-    fun load(ctx: Context, url: String?, desaturate: Boolean, frost: Frost?): Art {
-        if (url.isNullOrBlank()) return Art(null, FALLBACK_ACCENT)
+    fun load(ctx: Context, url: String?, desaturate: Boolean, frost: Frost?): Bitmap? {
+        if (url.isNullOrBlank()) return null
 
         val file = File(ctx.cacheDir, "art_${url.hashCode().toUInt()}.jpg")
         if (!file.exists()) {
-            if (!download(url, file)) return Art(null, FALLBACK_ACCENT)
+            if (!download(url, file)) return null
             prune(ctx.cacheDir)
         }
 
-        val sharp = decodeSampled(file) ?: return Art(null, FALLBACK_ACCENT)
-        val accent = accentOf(sharp)
+        val sharp = decodeSampled(file) ?: return null
         val bitmap = if (frost != null) frostRegion(sharp, frost) else sharp
-        return if (desaturate) Art(toGrey(bitmap), greyOf(accent)) else Art(bitmap, accent)
+        return if (desaturate) toGrey(bitmap) else bitmap
     }
 
     /**
@@ -151,13 +146,6 @@ object ArtCache {
         return out
     }
 
-    private fun greyOf(color: Int): Int {
-        val hsl = FloatArray(3)
-        androidx.core.graphics.ColorUtils.colorToHSL(color, hsl)
-        hsl[1] = 0f
-        return androidx.core.graphics.ColorUtils.HSLToColor(hsl)
-    }
-
     private fun download(url: String, dest: File): Boolean = runCatching {
         URL(url).openStream().use { input ->
             dest.outputStream().use { output -> input.copyTo(output) }
@@ -200,24 +188,4 @@ object ArtCache {
         else Bitmap.createScaledBitmap(decoded, TARGET_PX, TARGET_PX, true)
             .also { if (it !== decoded) decoded.recycle() }
     }.getOrNull()
-
-    /**
-     * A dark, album-derived backdrop. Cheaper than blurring the art into a
-     * second bitmap, and keeps light text readable regardless of the cover.
-     */
-    private fun accentOf(bitmap: Bitmap): Int = runCatching {
-        val palette = Palette.from(bitmap).clearFilters().generate()
-        val base = palette.getDarkMutedColor(
-            palette.getDarkVibrantColor(palette.getMutedColor(FALLBACK_ACCENT)),
-        )
-        darken(base)
-    }.getOrElse { FALLBACK_ACCENT }
-
-    private fun darken(color: Int): Int {
-        val hsl = FloatArray(3)
-        androidx.core.graphics.ColorUtils.colorToHSL(color, hsl)
-        hsl[2] = hsl[2].coerceAtMost(0.22f)
-        hsl[1] = hsl[1].coerceAtMost(0.55f)
-        return Color.parseColor("#FF000000") or androidx.core.graphics.ColorUtils.HSLToColor(hsl)
-    }
 }

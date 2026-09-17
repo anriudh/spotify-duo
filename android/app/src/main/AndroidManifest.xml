@@ -38,9 +38,6 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="dev.anriudh.spotifyduo.ACTION_REFRESH" />
-                <action android:name="dev.anriudh.spotifyduo.ACTION_ALARM" />
-                <action android:name="dev.anriudh.spotifyduo.ACTION_TOGGLE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
