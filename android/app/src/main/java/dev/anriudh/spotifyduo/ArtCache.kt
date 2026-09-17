@@ -30,14 +30,20 @@ object ArtCache {
      */
     private const val MAX_CACHED = 60
 
-    /** Frosted band: fully sharp above BLUR_FROM, fully blurred below BLUR_TO. */
-    private const val BLUR_FROM = 0.34f
-    private const val BLUR_TO = 0.72f
-
     data class Art(val bitmap: Bitmap?, val accent: Int)
 
-    /** @param desaturate render the art grey, signalling that nobody is listening. */
-    fun load(ctx: Context, url: String?, desaturate: Boolean): Art {
+    /**
+     * Where to frost, in *card* pixels: the rectangle the text occupies on
+     * screen plus a margin, along with the card's size so it can be mapped
+     * through the centerCrop transform into bitmap coordinates.
+     */
+    data class Frost(val cardW: Float, val cardH: Float, val rect: android.graphics.RectF, val featherPx: Float)
+
+    /**
+     * @param desaturate render the art grey, signalling that nobody is listening.
+     * @param frost region to blur behind the text, or null for untouched art.
+     */
+    fun load(ctx: Context, url: String?, desaturate: Boolean, frost: Frost?): Art {
         if (url.isNullOrBlank()) return Art(null, FALLBACK_ACCENT)
 
         val file = File(ctx.cacheDir, "art_${url.hashCode().toUInt()}.jpg")
@@ -48,45 +54,59 @@ object ArtCache {
 
         val sharp = decodeSampled(file) ?: return Art(null, FALLBACK_ACCENT)
         val accent = accentOf(sharp)
-        val bitmap = frostBottom(sharp)
+        val bitmap = if (frost != null) frostRegion(sharp, frost) else sharp
         return if (desaturate) Art(toGrey(bitmap), greyOf(accent)) else Art(bitmap, accent)
     }
 
     /**
-     * Blurs the lower part of the art, feathered in from BLUR_FROM to BLUR_TO,
-     * so text sits on frosted glass while the top of the cover stays crisp.
-     * Baked into the same bitmap: a separate blurred layer would be a second
-     * bitmap across Binder, and this costs nothing extra.
+     * Blurs only the region behind the text -- a rounded rectangle hugging the
+     * track and artist lines, with soft edges -- and leaves the rest of the
+     * cover crisp. Baked into the same bitmap, so still one bitmap across
+     * Binder.
      *
-     * The card is centerCrop, so on a very wide widget the top and bottom of
-     * the (square) art are cropped symmetrically; the band still lands under
-     * the text, just a little higher up the card.
+     * The card is centerCrop of this square bitmap, so the card-space rect is
+     * mapped through that transform: scale by the larger card/bitmap ratio,
+     * then subtract the centring offset.
      */
-    private fun frostBottom(sharp: Bitmap): Bitmap {
-        val w = sharp.width
-        val h = sharp.height
-        val blur = blurred(sharp)
+    private fun frostRegion(sharp: Bitmap, f: Frost): Bitmap {
+        val size = sharp.width.toFloat()
+        val scale = maxOf(f.cardW / size, f.cardH / size)
+        val offX = (f.cardW - size * scale) / 2f
+        val offY = (f.cardH - size * scale) / 2f
+        val r = android.graphics.RectF(
+            (f.rect.left - offX) / scale,
+            (f.rect.top - offY) / scale,
+            (f.rect.right - offX) / scale,
+            (f.rect.bottom - offY) / scale,
+        )
+        val feather = f.featherPx / scale
+        val corner = r.height() * 0.28f
 
-        // Blur layer with alpha ramped by a vertical gradient (DST_IN keeps
-        // the blur only where the gradient is opaque -- the bottom).
-        val layer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val blur = blurred(sharp)
+        // Mask first: a soft-edged rounded rect on a transparent layer. Then the
+        // blur is drawn through it with SRC_IN, which keeps blurred pixels only
+        // where the mask has alpha and leaves everything else transparent.
+        // (DST_IN the other way round would not touch pixels outside the shape,
+        // leaving the whole image blurred.)
+        val layer = Bitmap.createBitmap(sharp.width, sharp.height, Bitmap.Config.ARGB_8888)
         android.graphics.Canvas(layer).apply {
-            drawBitmap(blur, 0f, 0f, null)
-            drawRect(
-                0f, 0f, w.toFloat(), h.toFloat(),
+            drawRoundRect(
+                r, corner, corner,
+                android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xFF000000.toInt()
+                    maskFilter = android.graphics.BlurMaskFilter(feather, android.graphics.BlurMaskFilter.Blur.NORMAL)
+                },
+            )
+            drawBitmap(
+                blur, 0f, 0f,
                 android.graphics.Paint().apply {
-                    shader = android.graphics.LinearGradient(
-                        0f, h * BLUR_FROM, 0f, h * BLUR_TO,
-                        0x00000000, 0xFF000000.toInt(),
-                        android.graphics.Shader.TileMode.CLAMP,
-                    )
-                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
                 },
             )
         }
         blur.recycle()
 
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+        val out = Bitmap.createBitmap(sharp.width, sharp.height, Bitmap.Config.RGB_565)
         android.graphics.Canvas(out).apply {
             drawBitmap(sharp, 0f, 0f, null)
             drawBitmap(layer, 0f, 0f, null)

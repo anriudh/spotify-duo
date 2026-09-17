@@ -84,12 +84,12 @@ class PlaybackWidget : AppWidgetProvider() {
 
         fun renderAll(ctx: Context, state: DuoState?) {
             val mgr = AppWidgetManager.getInstance(ctx)
-            val views = buildViews(ctx, state)
-            widgetIds(ctx, mgr).forEach { mgr.updateAppWidget(it, views) }
+            // Per instance: the frosted region depends on each widget's own size.
+            widgetIds(ctx, mgr).forEach { mgr.updateAppWidget(it, buildViews(ctx, state, mgr, it)) }
             RefreshScheduler.scheduleNext(ctx, state)
         }
 
-        private fun buildViews(ctx: Context, state: DuoState?): RemoteViews {
+        private fun buildViews(ctx: Context, state: DuoState?, mgr: AppWidgetManager, widgetId: Int): RemoteViews {
             val views = RemoteViews(ctx.packageName, R.layout.widget_card)
             views.setOnClickPendingIntent(R.id.refresh, broadcast(ctx, ACTION_REFRESH))
             views.setOnClickPendingIntent(R.id.who, broadcast(ctx, ACTION_TOGGLE))
@@ -108,7 +108,12 @@ class PlaybackWidget : AppWidgetProvider() {
                 return views
             }
 
-            val art = ArtCache.load(ctx, user.albumArtUrl, desaturate = !user.isPlaying)
+            val showsBar = user.hasLikelyEnded(now) || (user.isPlaying && user.durationMs > 0L)
+            val art = ArtCache.load(
+                ctx, user.albumArtUrl,
+                desaturate = !user.isPlaying,
+                frost = frostFor(ctx, mgr, widgetId, user, showsBar),
+            )
             views.setInt(R.id.tint, "setBackgroundColor", art.accent)
             art.bitmap?.let { views.setImageViewBitmap(R.id.art, it) }
             views.setViewVisibility(R.id.art, if (art.bitmap != null) View.VISIBLE else View.GONE)
@@ -165,6 +170,61 @@ class PlaybackWidget : AppWidgetProvider() {
             // song, whereas the album page opens without touching playback.
             views.setOnClickPendingIntent(R.id.card, openInSpotify(ctx, user.albumUri))
             return views
+        }
+
+        /**
+         * The rectangle the track and artist lines occupy on screen, plus a
+         * margin, in card pixels. Reproduces widget_card.xml's geometry: root
+         * padding, then from the bottom up the status line, the bar row and the
+         * two text lines. Text widths are measured with the same size and
+         * weight the TextViews use and capped at the available width, which is
+         * where they ellipsize.
+         */
+        private fun frostFor(
+            ctx: Context,
+            mgr: AppWidgetManager,
+            widgetId: Int,
+            user: UserPlayback,
+            showsBar: Boolean,
+        ): ArtCache.Frost? {
+            if (!user.hasTrack) return null
+            val dm = ctx.resources.displayMetrics
+            val opts = mgr.getAppWidgetOptions(widgetId)
+            val cardW = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) * dm.density
+            val cardH = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT) * dm.density
+            if (cardW <= 0f || cardH <= 0f) return null
+
+            fun dp(v: Float) = v * dm.density
+            fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, dm)
+            fun paint(size: Float, bold: Boolean) = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = sp(size)
+                if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            fun lineH(p: android.text.TextPaint) = p.fontMetrics.let { it.descent - it.ascent }
+
+            val track = paint(19f, bold = true)
+            val artist = paint(14f, bold = false)
+            val small = paint(11f, bold = false)
+
+            val pad = dp(14f)
+            val avail = cardW - 2 * pad
+            val textW = maxOf(
+                minOf(track.measureText(user.trackName ?: ""), avail),
+                minOf(artist.measureText(user.artistName ?: ""), avail),
+            )
+
+            // Bar row keeps its 8dp top margin even when its children are gone.
+            val barRow = dp(8f) + if (showsBar) maxOf(dp(6f), lineH(small)) else 0f
+            val bottom = cardH - pad - lineH(small) - dp(2f) - barRow
+            val top = bottom - lineH(track) - lineH(artist)
+
+            val mx = dp(12f)
+            val my = dp(6f)
+            return ArtCache.Frost(
+                cardW, cardH,
+                android.graphics.RectF(pad - mx, top - my, pad + textW + mx, bottom + my),
+                featherPx = dp(10f),
+            )
         }
 
         private fun pickUser(ctx: Context, state: DuoState?): UserPlayback? {
