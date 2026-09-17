@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS playback (
   album_name     TEXT,
   album_art_url  TEXT,
   track_uri      TEXT,
+  album_uri      TEXT,
   device_name    TEXT,
   device_type    TEXT,
   progress_ms    INTEGER,

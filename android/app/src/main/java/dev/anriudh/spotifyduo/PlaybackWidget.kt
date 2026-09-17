@@ -156,9 +156,9 @@ class PlaybackWidget : AppWidgetProvider() {
             }
 
             views.setTextViewText(R.id.status, statusLine(user, now))
-            user.trackUri?.let {
-                views.setOnClickPendingIntent(R.id.card, openTrack(ctx, it))
-            }
+            // Album, not track: a track URI is a play command and restarts the
+            // song, whereas the album page opens without touching playback.
+            views.setOnClickPendingIntent(R.id.card, openInSpotify(ctx, user.albumUri))
             return views
         }
 
@@ -195,12 +195,15 @@ class PlaybackWidget : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-        /** Explicit target: Android 14+ rejects implicit intents in PendingIntents here. */
-        private fun openTrack(ctx: Context, uri: String): PendingIntent =
+        /**
+         * Explicit target: Android 14+ rejects implicit intents in PendingIntents
+         * here. A null uri still opens Spotify, just without navigating.
+         */
+        private fun openInSpotify(ctx: Context, uri: String?): PendingIntent =
             PendingIntent.getActivity(
                 ctx,
                 uri.hashCode(),
-                Intent(ctx, OpenTrackActivity::class.java).setData(Uri.parse(uri)),
+                Intent(ctx, OpenTrackActivity::class.java).apply { uri?.let { data = Uri.parse(it) } },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
     }

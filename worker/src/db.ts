@@ -83,12 +83,14 @@ export async function writePlayback(
   await env.DB.prepare(
     `UPDATE playback
        SET is_playing = ?, track_name = ?, artist_name = ?, album_name = ?, album_art_url = ?,
-           track_uri = ?, device_name = ?, device_type = ?, progress_ms = ?, duration_ms = ?,
+           track_uri = ?, album_uri = ?, device_name = ?, device_type = ?,
+           progress_ms = ?, duration_ms = ?,
            polled_at = ?, last_active_at = COALESCE(?, last_active_at)
      WHERE user_id = ?`,
   ).bind(
     s.is_playing ? 1 : 0, s.track_name, s.artist_name, s.album_name, s.album_art_url,
-    s.track_uri, s.device_name, s.device_type, s.progress_ms, s.duration_ms,
+    s.track_uri, s.album_uri, s.device_name, s.device_type,
+    s.progress_ms, s.duration_ms,
     now, lastActiveAt, userId,
   ).run();
 }

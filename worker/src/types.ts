@@ -23,6 +23,7 @@ export interface PlaybackRow {
   album_name: string | null;
   album_art_url: string | null;
   track_uri: string | null;
+  album_uri: string | null;
   device_name: string | null;
   device_type: string | null;
   progress_ms: number | null;
@@ -39,6 +40,7 @@ export interface PlayerSnapshot {
   album_name: string;
   album_art_url: string | null;
   track_uri: string;
+  album_uri: string | null;
   device_name: string | null;
   device_type: string | null;
   progress_ms: number;

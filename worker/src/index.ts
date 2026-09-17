@@ -165,6 +165,7 @@ function stateResponse({ users, playback }: Rows, ifNoneMatch: string | null): R
       album_name: p?.album_name ?? null,
       album_art_url: p?.album_art_url ?? null,
       track_uri: p?.track_uri ?? null,
+      album_uri: p?.album_uri ?? null,
       device_name: p?.device_name ?? null,
       device_type: p?.device_type ?? null,
       progress_ms: p?.progress_ms ?? null,
