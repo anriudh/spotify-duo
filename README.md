@@ -8,6 +8,14 @@ It's built for exactly two people. Each person has a colour, chooses the name th
 and gets their own device token so either phone can be revoked alone. Everything runs on free
 tiers with no card on file: a Cloudflare Worker, a D1 database and a small Android app.
 
+<p align="center">
+  <img src="docs/widget-4x2.png" width="420" alt="4×2 widget: album art, frosted text, progress bar and status line"><br>
+  <img src="docs/widget-4x1.png" width="420" alt="4×1 compact widget"><br>
+  <img src="docs/widget-3x1.png" width="318" alt="3×1 compact widget">
+  <img src="docs/widget-4x1-partner.png" width="420" alt="Partner's card, greyed out, showing what they last played"><br>
+  <sub>4×2 full · 4×1 and 3×1 compact · partner idle</sub>
+</p>
+
 ## Status
 
 Finished and in daily use on both phones (Moto G73 / Android 14, Moto G86 Power / Android 15).
