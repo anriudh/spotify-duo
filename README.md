@@ -1,8 +1,11 @@
-# Spotify Playback Tracker
+# Spotify Duo
 
 A shared home-screen widget for two people. Each phone shows what the other is currently
 playing on Spotify — track, artist, album art and live progress — with a tap to flip to your
 own card. When someone isn't listening, their card greys out and shows what they last played.
+
+Each card carries its person's colour (blue for one, pink for the other) on the name chip and
+the progress bar, and each person chooses the name the other sees.
 
 Built for two people specifically, on free tiers only, with no hardware and no payment method
 on file anywhere.
@@ -14,7 +17,7 @@ on file anywhere.
 | **0 — Spotify API access** | ✅ Verified end-to-end on both accounts |
 | **1 — Cloudflare Worker backend** | ✅ Deployed and serving live data |
 | **2 — Android app + widget** | ✅ Installed and working on device |
-| **3 — Visual design pass** | ⬜ Not started |
+| **3 — Visual design pass** | 🟡 Round one done: per-person colour, custom names, styled bar |
 
 The second account still needs to complete its one-time Spotify login, so two-way symmetry is
 the one thing not yet exercised against real data.
@@ -144,6 +147,7 @@ otherwise stop a widget app it decides is idle.
 | `GET /auth/callback` | Completes it and displays that user's device token once |
 | `GET /state` | Both users' playback as JSON. Requires `Authorization: Bearer <device_token>`. Supports `If-None-Match` → `304` |
 | `POST /refresh` | Forces an immediate poll of both accounts. Rate-limited to once per 5s per caller |
+| `POST /me` | Sets the caller's display name — how they appear on the *other* phone. Body `{"display_name": "ani"}`, 1–20 chars |
 
 Each user has their own device token, so one phone can be revoked without re-keying the other.
 
@@ -166,7 +170,8 @@ android/app/src/main/
 │   ├── StateRepository.kt    /state and /refresh, with offline cache
 │   ├── PlaybackState.kt      model and JSON parsing
 │   ├── ArtCache.kt           album art download, downsample, Palette colour
-│   ├── OpenTrackActivity.kt  trampoline so card taps open Spotify
+│   ├── OpenTrackActivity.kt  trampoline so card taps open the album in Spotify
+│   ├── Person.kt             per-person colour mapping
 │   ├── MainActivity.kt       one-time setup
 │   └── Prefs.kt / BootReceiver.kt
 └── res/layout/widget_card.xml
@@ -175,6 +180,15 @@ android/app/src/main/
 `GET /me/player` is used rather than `/me/player/currently-playing` — the same single request,
 but it also returns device name and type for the "on …" line, and a paused session still
 returns 200 there, so pause is distinguishable from stopped.
+
+Tapping the card opens the **album**, not the track: a track URI — in either `spotify:` or
+`open.spotify.com` form — is a play command and restarts the song. The album page opens without
+touching playback. Measured, not assumed.
+
+A RemoteViews widget cannot swap a drawable at runtime below API 31, so per-person styling uses
+two tricks: the chip switches between two pill drawables with `setBackgroundResource` (which
+does take an int), and the progress bar is two `ProgressBar`s, one per colour, with visibility
+toggled.
 
 Album art is capped at **200px RGB_565 (~80KB)**. RemoteViews cross a Binder transaction capped
 near 1MB, and exceeding it throws at runtime rather than failing the build — raising that size
