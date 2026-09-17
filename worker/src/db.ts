@@ -68,6 +68,10 @@ export async function clearLink(env: Env, userId: string): Promise<void> {
   ).bind(userId).run();
 }
 
+export async function setDisplayName(env: Env, userId: string, name: string): Promise<void> {
+  await env.DB.prepare('UPDATE users SET display_name = ? WHERE id = ?').bind(name, userId).run();
+}
+
 export async function markForced(env: Env, userId: string, at: number): Promise<void> {
   await env.DB.prepare('UPDATE users SET last_forced_at = ? WHERE id = ?').bind(at, userId).run();
 }

@@ -24,6 +24,8 @@ export default {
         return handleState(req, env);
       case '/refresh':
         return handleForcedRefresh(req, env);
+      case '/me':
+        return handleSetName(req, env);
       default:
         return new Response('Not found', { status: 404 });
     }
@@ -129,6 +131,29 @@ async function handleForcedRefresh(req: Request, env: Env): Promise<Response> {
     await db.markForced(env, caller.id, now);
     await pollAll(env);
   }
+  return stateResponse(await loadRows(env), null);
+}
+
+const DISPLAY_NAME_MAX = 20;
+
+/**
+ * Sets how the caller's name appears on the *other* person's widget. It has to
+ * live server-side for exactly that reason: the partner's phone renders it.
+ */
+async function handleSetName(req: Request, env: Env): Promise<Response> {
+  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+
+  const caller = await requireUser(req, env);
+  if (!caller) return new Response('Unauthorized', { status: 401 });
+
+  const body = await req.json<{ display_name?: unknown }>().catch(() => null);
+  const raw = typeof body?.display_name === 'string' ? body.display_name : '';
+  const name = raw.trim().replace(/[\p{Cc}]/gu, '');
+  if (!name || name.length > DISPLAY_NAME_MAX) {
+    return new Response(`display_name must be 1-${DISPLAY_NAME_MAX} characters`, { status: 400 });
+  }
+
+  await db.setDisplayName(env, caller.id, name);
   return stateResponse(await loadRows(env), null);
 }
 
