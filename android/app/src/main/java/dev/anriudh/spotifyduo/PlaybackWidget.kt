@@ -98,6 +98,7 @@ class PlaybackWidget : AppWidgetProvider() {
             val user = pickUser(ctx, state)
             if (user == null) {
                 views.setTextViewText(R.id.who, "—")
+                views.setInt(R.id.who, "setBackgroundResource", R.drawable.chip_blue)
                 views.setTextViewText(R.id.track, "Open the app to set up")
                 views.setTextViewText(R.id.artist, "")
                 views.setTextViewText(R.id.status, ctx.lastError ?: "")
@@ -112,7 +113,11 @@ class PlaybackWidget : AppWidgetProvider() {
             art.bitmap?.let { views.setImageViewBitmap(R.id.art, it) }
             views.setViewVisibility(R.id.art, if (art.bitmap != null) View.VISIBLE else View.GONE)
 
-            views.setTextViewText(R.id.who, if (user.id == ctx.selfId) "YOU" else user.displayName.uppercase())
+            // Own card says "you"; the custom name only ever shows on the partner's phone.
+            views.setTextViewText(R.id.who, if (user.id == ctx.selfId) "you" else user.displayName)
+            views.setInt(R.id.who, "setBackgroundResource", Person.chipFor(user.id))
+            val bar = Person.barFor(user.id)
+            views.setViewVisibility(Person.otherBar(bar), View.GONE)
 
             when {
                 user.needsLogin -> {
@@ -134,17 +139,17 @@ class PlaybackWidget : AppWidgetProvider() {
                         user.hasLikelyEnded(now) -> {
                             // Finished, and we do not know what is playing now.
                             // Show it complete and stopped rather than ticking on.
-                            views.setViewVisibility(R.id.progress, View.VISIBLE)
+                            views.setViewVisibility(bar, View.VISIBLE)
                             views.setViewVisibility(R.id.elapsed, View.GONE)
-                            views.setProgressBar(R.id.progress, 100, 100, false)
+                            views.setProgressBar(bar, 100, 100, false)
                             views.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime(), null, false)
                         }
 
                         user.isPlaying && user.durationMs > 0L -> {
                             val elapsed = user.elapsedMsAt(now)
-                            views.setViewVisibility(R.id.progress, View.VISIBLE)
+                            views.setViewVisibility(bar, View.VISIBLE)
                             views.setViewVisibility(R.id.elapsed, View.VISIBLE)
-                            views.setProgressBar(R.id.progress, user.durationMs.toInt(), elapsed.toInt(), false)
+                            views.setProgressBar(bar, user.durationMs.toInt(), elapsed.toInt(), false)
                             // Chronometer ticks on its own, keeping elapsed time live
                             // between refreshes without redrawing the widget.
                             views.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime() - elapsed, null, true)
@@ -172,7 +177,8 @@ class PlaybackWidget : AppWidgetProvider() {
         }
 
         private fun hideProgress(views: RemoteViews) {
-            views.setViewVisibility(R.id.progress, View.GONE)
+            views.setViewVisibility(R.id.progress_blue, View.GONE)
+            views.setViewVisibility(R.id.progress_pink, View.GONE)
             views.setViewVisibility(R.id.elapsed, View.GONE)
             views.setChronometer(R.id.elapsed, SystemClock.elapsedRealtime(), null, false)
         }

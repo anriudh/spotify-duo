@@ -15,6 +15,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var urlField: EditText
     private lateinit var tokenField: EditText
+    private lateinit var nameField: EditText
     private lateinit var result: TextView
     private lateinit var whoAnirudh: RadioButton
     private lateinit var whoDivya: RadioButton
@@ -25,12 +26,15 @@ class MainActivity : AppCompatActivity() {
 
         urlField = findViewById(R.id.baseUrl)
         tokenField = findViewById(R.id.token)
+        nameField = findViewById(R.id.displayName)
         result = findViewById(R.id.result)
         whoAnirudh = findViewById(R.id.whoAnirudh)
         whoDivya = findViewById(R.id.whoDivya)
 
         urlField.setText(baseUrl.ifBlank { DEFAULT_BASE_URL })
         tokenField.setText(deviceToken)
+        // Prefill from whatever the server last told us this person is called.
+        StateRepository.cached(this)?.users?.firstOrNull { it.id == selfId }?.let { nameField.setText(it.displayName) }
         when (selfId) {
             "anirudh" -> whoAnirudh.isChecked = true
             "divya" -> whoDivya.isChecked = true
@@ -72,8 +76,12 @@ class MainActivity : AppCompatActivity() {
         }
         result.text = getString(R.string.checking)
 
+        val newName = nameField.text.toString().trim()
+
         // HttpURLConnection on the main thread throws NetworkOnMainThreadException.
         Thread {
+            // Push the name first so the refresh that follows reflects it.
+            if (newName.isNotEmpty()) StateRepository.setDisplayName(this, newName)
             val state = StateRepository.refresh(this, forced = true)
             val text = describe(state)
             PlaybackWidget.renderAll(this, state)

@@ -24,6 +24,44 @@ object StateRepository {
     }
 
     /**
+     * Sets how this person's name appears on the *other* phone. Server-side by
+     * necessity: it is the partner's widget that renders it. Returns the fresh
+     * state the Worker sends back, already cached, or null on failure.
+     */
+    fun setDisplayName(ctx: Context, name: String): DuoState? {
+        if (!ctx.isConfigured) return null
+        val conn = (URL(ctx.baseUrl + "/me").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = TIMEOUT_MS
+            readTimeout = TIMEOUT_MS
+            doOutput = true
+            setRequestProperty("Authorization", "Bearer ${ctx.deviceToken}")
+            setRequestProperty("Content-Type", "application/json")
+        }
+        return try {
+            conn.outputStream.use {
+                it.write(org.json.JSONObject().put("display_name", name).toString().toByteArray())
+            }
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                ctx.lastError = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Server returned ${conn.responseCode}"
+                return null
+            }
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val receivedAt = System.currentTimeMillis()
+            ctx.cachedStateJson = body
+            ctx.cachedAtLocal = receivedAt
+            conn.getHeaderField("ETag")?.let { ctx.etag = it }
+            ctx.lastError = null
+            DuoState.parse(body, receivedAt)
+        } catch (e: IOException) {
+            ctx.lastError = e.message ?: "Network error"
+            null
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
      * @param forced POST /refresh, making the server poll Spotify immediately
      *   and bypass its own staleness window. Used by the widget's refresh button.
      * @return the newest state available, falling back to cache on failure.

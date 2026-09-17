@@ -6,6 +6,8 @@
     <string name="pick_who_first">Pick who this phone belongs to first.</string>
     <string name="paste_token_first">Paste the device token from the sign-in page.</string>
     <string name="checking">Checking…</string>
+    <string name="name_label">Your name, as they\'ll see it</string>
+    <string name="name_hint">e.g. ani</string>
     <string name="alarms_not_needed">Not needed on this Android version.</string>
-    <string name="setup_help">Sign in, paste the token it gives you, then save. Allow exact alarms so the widget refreshes on time, and set Battery to Unrestricted so Android does not stop it in the background. Add the widget from your home screen and swipe between the two cards.</string>
+    <string name="setup_help">Sign in, paste the token it gives you, then save. Allow exact alarms so the widget refreshes on time, and set Battery to Unrestricted so Android does not stop it in the background. Add the widget from your home screen and tap the name to switch between the two of you.</string>
 </resources>

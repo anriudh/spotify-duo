@@ -1,0 +1,7 @@
+<resources>
+    <!-- Per-person identity. Saturated enough to read as "whose card", light
+         enough to sit on the dark scrim over arbitrary album art. -->
+    <color name="person_blue">#4F8CFF</color>
+    <color name="person_pink">#FF6FAE</color>
+    <color name="progress_track">#33FFFFFF</color>
+</resources>

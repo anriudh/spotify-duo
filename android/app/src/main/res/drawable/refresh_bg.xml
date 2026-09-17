@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Neutral on purpose: it is a control, not part of either person's identity.
+     Dark fill plus a faint rim reads on bright and dark art alike. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#73000000" />
+    <stroke
+        android:width="1dp"
+        android:color="#33FFFFFF" />
+</shape>
