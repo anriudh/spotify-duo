@@ -1,198 +1,176 @@
 # Spotify Duo
 
-A shared home-screen widget for two people. Each phone shows what the other is currently
-playing on Spotify — track, artist, album art and live progress — with a tap to flip to your
-own card. When someone isn't listening, their card greys out and shows what they last played.
+A home-screen widget that shows what one other person is listening to on Spotify, right now,
+with album art, live progress and the device they're on — and flips to show your own card with a
+tap. When they aren't listening it greys out and says what they last played and how long ago.
 
-Each card carries its person's colour (blue for one, pink for the other) on the name chip and
-the progress bar, and each person chooses the name the other sees.
-
-Built for two people specifically, on free tiers only, with no hardware and no payment method
-on file anywhere.
+It's built for exactly two people. Each person has a colour, chooses the name the other sees,
+and gets their own device token so either phone can be revoked alone. Everything runs on free
+tiers with no card on file: a Cloudflare Worker, a D1 database and a small Android app.
 
 ## Status
 
-| Phase | State |
-|---|---|
-| **0 — Spotify API access** | ✅ Verified end-to-end on both accounts |
-| **1 — Cloudflare Worker backend** | ✅ Deployed and serving live data |
-| **2 — Android app + widget** | ✅ Installed and working on device |
-| **3 — Visual design pass** | 🟡 Round one done: per-person colour, custom names, styled bar |
+Finished and in daily use on both phones (Moto G73 / Android 14, Moto G86 Power / Android 15).
 
-The second account still needs to complete its one-time Spotify login, so two-way symmetry is
-the one thing not yet exercised against real data.
+Verified against real data: two-way symmetry, boot recovery, screen-off polling, sub-1% CPU,
+~3.5MB storage, no Binder-size crashes at the largest widget size.
 
 ## How it works
 
 ```
 Spotify Web API
-      ▲  polled by the Worker: on read when stale, plus a 1-minute cron
+      ▲  polled by the Worker: on read when older than 15s, plus a 1-minute cron
       │
-Cloudflare Worker ── D1 (playback state + refresh tokens)
+Cloudflare Worker ── D1 (playback rows, refresh tokens, display names)
       │
-      │  GET /state  — each phone, every 15s while playing
+      │  GET /state with ETag — each phone, every 15s while someone is playing
       ▼
   Phone A  ◄──►  Phone B
 ```
 
-Latency has two independent halves, and both have to be small:
+Latency has two halves, each capped at 15s, so the worst case is ~30s and typically much less.
+The refresh button forces both to zero.
 
-- the Worker re-polls Spotify when its stored rows are older than **15s**
-- each phone polls the Worker every **15s** while someone is playing
+### Why a server at all
 
-so the worst case is about **30s**, and typically far less. A refresh button forces it to zero.
+- **Honesty about staleness.** If each phone reported its own playback, a phone that's off would
+  leave the other person's widget showing stale data that looks live. Polling Spotify server-side
+  makes that impossible: you see your partner's real state even when their phone is dead.
+- **Desktop listening.** Reading Spotify's media notification on-device can't see a laptop.
+  During testing one of us was on `Web Player (Microsoft Edge)`.
+- **No foreground service.** Android 15 caps `dataSync` services at 6h/day.
+
+### What "last played" means
+
+Spotify's recently-played history isn't the same as "what you were last listening to": a track
+only enters it after ~30s of play, it lags by minutes, and the song that was on when you closed
+the app is often missing. Taken naively that regresses the widget to an older song the moment a
+session ends.
+
+So the Worker treats its own observations as ground truth. If it saw a track playing more
+recently than history's timestamp, it keeps that track and only marks it stopped; history wins
+only when it's genuinely newer (you listened while nobody was looking). The 1-minute cron is what
+makes those observations exist even when neither phone is polling.
 
 ### When the widget refreshes
 
-Three situations need a refresh, and they are not equivalent:
-
 | Situation | Handling |
 |---|---|
-| **The track finished** | *Predictable.* The end is computed from the duration, and the widget wakes exactly then — so the next song appears as it starts |
-| **Playback stopped** | *Unpredictable.* Nothing on the phone can know; found by the 15s poll |
-| **Skipped to another track** | *Unpredictable.* Same — found by the 15s poll |
+| **The track finished** | Predictable: the widget wakes exactly when the duration runs out, so the next song appears as it starts |
+| **Playback stopped or skipped** | Unpredictable: caught by the 15s poll |
+| **Nobody listening** | A lazy 4-minute alarm, which Doze stretches further on an idle phone |
 
-The widget also redraws every 15s while playing for a separate reason: **a `ProgressBar` in a
-widget cannot advance by itself.** Widget views are drawn by the launcher, not by this app, so
-nothing in them executes. `Chronometer` is special-cased by the system and does tick on its
-own; `ProgressBar` has no equivalent, so the bar only moves when redrawn. Polling on that same
-tick therefore costs no extra wakeups.
-
-If the alarm is delayed and a track runs past its own duration, the card renders as finished —
+The 15s redraw while playing exists for a second reason: a `ProgressBar` in a widget cannot
+advance on its own. Widget views are drawn by the launcher, not by this app; `Chronometer` is
+special-cased by the system, `ProgressBar` isn't. Polling on that same tick costs no extra
+wakeups. If an alarm is late and a track runs past its duration, the card renders as finished —
 full bar, stopped clock, *"track ended · checking…"* — rather than presenting stale data as live.
 
-### Why a server, rather than phone-to-phone
+### The card
 
-- **Honesty about staleness.** If each phone reported only its own playback, a phone that is
-  off or offline would leave the other person's widget showing stale data that looks live.
-  Polling server-side makes that failure mode impossible.
-- **Desktop listening.** A purely on-device approach (reading Spotify's media notification)
-  cannot see playback on a laptop. During testing one of us was found listening via
-  `Web Player (Microsoft Edge)` — an on-device design would have reported them as idle.
-
-It also avoids a 24/7 foreground service, which Android 15 caps at 6 hours per 24 for the
-`dataSync` type.
+- **Frosted glass behind the text only.** The region the title and artist occupy is measured
+  from the same font metrics the TextViews use, mapped through the `centerCrop` transform into
+  bitmap space, blurred and feathered there, and baked into the art. One bitmap crosses Binder.
+- **Art is Spotify's 640px source decoded down to 400px RGB_565 (~320KB).** RemoteViews cross a
+  ~1MB Binder transaction; exceeding it throws at runtime, not at build. 640px RGB_565 is 820KB —
+  too close.
+- **Compact mode under 150dp.** One launcher row reports ~134dp on a 6.5" phone, which clips the
+  status line. Below the threshold the card tightens its padding and folds the status into the
+  artist line: *"Dua Lipa · last played 4 hours ago"*. The bar stays.
+- **Resize floor is 40dp**, not the 110dp default. Launcher3 takes the largest minimum span across
+  every orientation and adds its own padding first; landscape rows are ~65dp, so anything above
+  ~50dp silently rounds one-row widgets back up to two.
+- **Tap opens the album, not the track.** Measured: both `spotify:track:` and
+  `open.spotify.com/track/` links are play commands and restart the song. The album page opens
+  without touching playback.
+- **Two `ProgressBar`s, one per colour.** RemoteViews can't swap a `progressDrawable` below
+  API 31, so visibility is toggled instead.
 
 ## Setup
 
 ### Spotify
 
-Requires a Developer app in Development Mode. **The app owner must have Spotify Premium** —
-Premium Student qualifies, verified. Add both listeners to the app's 5-user allowlist, and
-register `https://<your-worker>.workers.dev/auth/callback` as a redirect URI.
+A Developer app in Development Mode. **The app owner must have Premium** (Student qualifies).
+Add both listeners to the 5-user allowlist and register
+`https://<your-worker>.workers.dev/auth/callback` as a redirect URI.
 
-Scopes: `user-read-currently-playing`, `user-read-playback-state`, `user-read-recently-played`.
-The third is easy to forget and yields `403 "Insufficient client scope"`, which is *not* the
-same error as a Premium problem.
+Scopes: `user-read-currently-playing user-read-playback-state user-read-recently-played`. The
+third is easy to forget and yields `403 Insufficient client scope`, which is not a Premium error.
 
 ### Worker
 
 ```bash
-cd worker
-npm install
-npx wrangler login
+cd worker && npm install && npx wrangler login
 ```
 
-Create the database and paste the returned `database_id` into `wrangler.toml`:
+Create the database, paste its `database_id` into `wrangler.toml`, then load the schema and deploy:
 
 ```bash
 npx wrangler d1 create spotify-duo
 ```
 
 ```bash
-npm run db:remote
+npm run db:remote && npm run deploy
 ```
 
-```bash
-npm run deploy
-```
-
-Set the Spotify client secret. **This is the only place it goes** — stored encrypted at
-Cloudflare, never written to disk, never committed:
+The client secret lives only in Cloudflare — never on disk, never committed:
 
 ```bash
 npx wrangler secret put SPOTIFY_CLIENT_SECRET
 ```
 
-For local development, put `SPOTIFY_CLIENT_SECRET=...` in `worker/.dev.vars` (gitignored).
-
-Then visit `/auth/login?u=anirudh` and `/auth/login?u=divya` once each. Each returns a
-**device token** for that person's phone.
+(`worker/.dev.vars`, gitignored, holds it for `wrangler dev`.) Then each person visits
+`/auth/login?u=<id>` once and gets a device token for their phone.
 
 ### Android
 
-Needs a JDK 17. **Android Studio bundles JDK 25, which AGP 8.7 rejects**, so point the build at
-a separate one:
+Needs JDK 17 — Android Studio's bundled JDK 25 is rejected by AGP 8.7:
 
 ```bash
-cd android
+cd android && JAVA_HOME=/path/to/jdk-17 ./gradlew assembleDebug
 ```
 
-```bash
-JAVA_HOME="/path/to/jdk-17" ./gradlew assembleDebug
-```
-
-Install the APK from `app/build/outputs/apk/debug/`, open the app, pick which person the phone
-belongs to, sign in, paste the device token, then save. Grant **Alarms & reminders**, set
-Battery to **Unrestricted**, and turn off **Pause app activity if unused** — Android will
-otherwise stop a widget app it decides is idle.
-
-`local.properties` is gitignored because it hardcodes a machine-specific SDK path.
+Install `app/build/outputs/apk/debug/app-debug.apk`, open the app, pick who you are, sign in,
+paste the device token, type the name the other person should see, save. Then grant
+**Alarms & reminders**, set Battery to **Unrestricted**, and turn off **Pause app activity if
+unused** — otherwise Android stops a widget app it decides is idle. Add the widget and resize
+it to taste; 3×1 and 4×1 use the compact layout.
 
 ## API
 
 | Route | Purpose |
 |---|---|
-| `GET /auth/login?u=<id>` | Starts the Spotify OAuth flow for that user |
-| `GET /auth/callback` | Completes it and displays that user's device token once |
-| `GET /state` | Both users' playback as JSON. Requires `Authorization: Bearer <device_token>`. Supports `If-None-Match` → `304` |
-| `POST /refresh` | Forces an immediate poll of both accounts. Rate-limited to once per 5s per caller |
-| `POST /me` | Sets the caller's display name — how they appear on the *other* phone. Body `{"display_name": "ani"}`, 1–20 chars |
-
-Each user has their own device token, so one phone can be revoked without re-keying the other.
+| `GET /auth/login?u=<id>` | Starts Spotify OAuth for that user |
+| `GET /auth/callback` | Completes it and shows the device token once |
+| `GET /state` | Both users as JSON. `Authorization: Bearer <device_token>`. Honours `If-None-Match` → `304` while nothing changes |
+| `POST /refresh` | Polls both accounts now. Once per 5s per caller |
+| `POST /me` | `{"display_name": "…"}`, 1–20 chars — how the caller appears on the *other* phone |
 
 ## Layout
 
 ```
 worker/
-├── wrangler.toml    cron trigger, D1 binding, client ID (public)
-├── schema.sql       users + playback tables
+├── wrangler.toml     cron, D1 binding, client ID (public)
+├── schema.sql        users + playback
 └── src/
-    ├── index.ts     routes, poll-on-read, cron handler
-    ├── spotify.ts   token refresh, /me/player, recently-played
-    ├── db.ts        D1 queries
+    ├── index.ts      routes, poll-on-read, history guard, cron
+    ├── spotify.ts    token refresh, /me/player, recently-played
+    ├── db.ts         D1 queries
     └── types.ts
 
 android/app/src/main/
 ├── java/dev/anriudh/spotifyduo/
-│   ├── PlaybackWidget.kt     provider, rendering, refresh actions
+│   ├── PlaybackWidget.kt     provider, rendering, compact mode, frost geometry
+│   ├── ArtCache.kt           download, downsample, region blur, desaturate
 │   ├── RefreshScheduler.kt   playback-aware alarm chain
-│   ├── StateRepository.kt    /state and /refresh, with offline cache
-│   ├── PlaybackState.kt      model and JSON parsing
-│   ├── ArtCache.kt           album art download, downsample, Palette colour
-│   ├── OpenTrackActivity.kt  trampoline so card taps open the album in Spotify
-│   ├── Person.kt             per-person colour mapping
-│   ├── MainActivity.kt       one-time setup
-│   └── Prefs.kt / BootReceiver.kt
-└── res/layout/widget_card.xml
+│   ├── StateRepository.kt    Worker client with offline cache + ETag
+│   ├── PlaybackState.kt      model, JSON, clock-skew correction
+│   ├── OpenTrackActivity.kt  trampoline so card taps open Spotify (Android 14 PendingIntent rule)
+│   ├── Person.kt             per-person colour
+│   ├── MainActivity.kt       one-time setup screen
+│   └── Prefs.kt · BootReceiver.kt
+└── res/layout/widget_card.xml · res/xml/widget_info.xml
 ```
-
-`GET /me/player` is used rather than `/me/player/currently-playing` — the same single request,
-but it also returns device name and type for the "on …" line, and a paused session still
-returns 200 there, so pause is distinguishable from stopped.
-
-Tapping the card opens the **album**, not the track: a track URI — in either `spotify:` or
-`open.spotify.com` form — is a play command and restarts the song. The album page opens without
-touching playback. Measured, not assumed.
-
-A RemoteViews widget cannot swap a drawable at runtime below API 31, so per-person styling uses
-two tricks: the chip switches between two pill drawables with `setBackgroundResource` (which
-does take an int), and the progress bar is two `ProgressBar`s, one per colour, with visibility
-toggled.
-
-Album art is capped at **200px RGB_565 (~80KB)**. RemoteViews cross a Binder transaction capped
-near 1MB, and exceeding it throws at runtime rather than failing the build — raising that size
-or switching to `ARGB_8888` quadruples it.
 
 ## Free-tier usage
 
@@ -202,5 +180,3 @@ or switching to `ARGB_8888` quadruples it.
 | D1 rows written | ~6,000 | 100,000 |
 | D1 rows read | ~10,000 | 5,000,000 |
 | Spotify API calls | ~6,000 | ~180/min |
-
-Comfortably inside every limit, with no payment method required anywhere.
