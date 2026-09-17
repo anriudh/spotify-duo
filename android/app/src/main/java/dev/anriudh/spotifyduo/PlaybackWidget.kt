@@ -116,7 +116,7 @@ class PlaybackWidget : AppWidgetProvider() {
 
             val opts = mgr.getAppWidgetOptions(widgetId)
             val compact = isCompact(opts)
-            val showsBar = !compact && (user.hasLikelyEnded(now) || (user.isPlaying && user.durationMs > 0L))
+            val showsBar = user.hasLikelyEnded(now) || (user.isPlaying && user.durationMs > 0L)
             val art = ArtCache.load(
                 ctx, user.albumArtUrl,
                 desaturate = !user.isPlaying,
@@ -157,8 +157,6 @@ class PlaybackWidget : AppWidgetProvider() {
                         if (compact && status.isNotEmpty()) "$artist · $status" else artist,
                     )
                     when {
-                        compact -> hideProgress(views)
-
                         user.hasLikelyEnded(now) -> {
                             // Finished, and we do not know what is playing now.
                             // Show it complete and stopped rather than ticking on.
@@ -235,8 +233,8 @@ class PlaybackWidget : AppWidgetProvider() {
             )
 
             // Bar row keeps its 8dp top margin even when its children are gone;
-            // compact removes the row and the status line entirely.
-            val barRow = if (compact) 0f else dp(8f) + if (showsBar) maxOf(dp(6f), lineH(small)) else 0f
+            // compact removes the status line.
+            val barRow = dp(8f) + if (showsBar) maxOf(dp(6f), lineH(small)) else 0f
             val statusRow = if (compact) 0f else lineH(small) + dp(2f)
             val bottom = cardH - pad - statusRow - barRow
             val top = bottom - lineH(track) - lineH(artist)
@@ -252,19 +250,22 @@ class PlaybackWidget : AppWidgetProvider() {
 
         private const val FULL_PAD_DP = 14f
         private const val COMPACT_PAD_DP = 10f
-        /** Below this the full stack (chip, two lines, bar, status) no longer fits. */
-        private const val COMPACT_BELOW_DP = 125
+        /**
+         * Below this the full stack (chip, two lines, bar, status) no longer
+         * fits. One launcher row on a Moto G73 reports 134dp, and the status
+         * line clips there: the reported height includes launcher padding.
+         */
+        private const val COMPACT_BELOW_DP = 150
 
         private fun isCompact(opts: Bundle): Boolean {
             val h = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
             return h in 1 until COMPACT_BELOW_DP
         }
 
-        /** Short cards: tighter padding, no bar row, no status line (it moves into the artist line). */
+        /** Short cards: tighter padding and no status line (it moves into the artist line). */
         private fun applyCompact(ctx: Context, views: RemoteViews, compact: Boolean) {
             val pad = ((if (compact) COMPACT_PAD_DP else FULL_PAD_DP) * ctx.resources.displayMetrics.density).toInt()
             views.setViewPadding(R.id.content, pad, pad, pad, pad)
-            views.setViewVisibility(R.id.bar_row, if (compact) View.GONE else View.VISIBLE)
             views.setViewVisibility(R.id.status, if (compact) View.GONE else View.VISIBLE)
         }
 
