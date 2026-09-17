@@ -254,14 +254,31 @@ async function pollUser(env: Env, user: UserRow): Promise<void> {
     return;
   }
 
+  const prev = await db.getPlayback(env, user.id);
   const recent = await fetchRecentlyPlayed(token);
   if (recent) {
+    // Recently-played lags: a track only enters it after ~30s of play, and the
+    // one that was on when the session ended is often still missing. If we saw
+    // a different track playing *after* history's timestamp, our observation
+    // is the truth and history would regress the widget to an older song.
+    const historyStale =
+      prev?.last_active_at != null &&
+      recent.played_at != null &&
+      recent.played_at < prev.last_active_at &&
+      prev.track_uri !== recent.track_uri;
+    if (historyStale) {
+      await db.markStopped(env, user.id, now, prev!.is_playing === 1);
+      console.log(
+        `${user.id}: idle, keeping "${prev!.track_name}" (seen ${new Date(prev!.last_active_at!).toISOString()})` +
+          ` over stale history "${recent.track_name}" (${new Date(recent.played_at!).toISOString()})`,
+      );
+      return;
+    }
     await db.writePlayback(env, user.id, recent, now, recent.played_at);
     console.log(`${user.id}: idle, last played "${recent.track_name}"`);
     return;
   }
 
-  const prev = await db.getPlayback(env, user.id);
   await db.markStopped(env, user.id, now, prev?.is_playing === 1);
   console.log(`${user.id}: idle, no listening history available`);
 }

@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.os.SystemClock
 import android.text.format.DateUtils
 import android.view.View
@@ -24,6 +25,11 @@ class PlaybackWidget : AppWidgetProvider() {
     }
 
     override fun onEnabled(ctx: Context) = RefreshScheduler.ensureScheduled(ctx)
+
+    /** The frost region is measured from the widget's size, so a resize needs a redraw. */
+    override fun onAppWidgetOptionsChanged(ctx: Context, mgr: AppWidgetManager, id: Int, opts: Bundle) {
+        runOffMainThread(ctx, hitNetwork = false, forced = false)
+    }
 
     /** Last widget removed: stop doing background work entirely. */
     override fun onDisabled(ctx: Context) = RefreshScheduler.cancel(ctx)
