@@ -114,12 +114,15 @@ class PlaybackWidget : AppWidgetProvider() {
                 return views
             }
 
-            val showsBar = user.hasLikelyEnded(now) || (user.isPlaying && user.durationMs > 0L)
+            val opts = mgr.getAppWidgetOptions(widgetId)
+            val compact = isCompact(opts)
+            val showsBar = !compact && (user.hasLikelyEnded(now) || (user.isPlaying && user.durationMs > 0L))
             val art = ArtCache.load(
                 ctx, user.albumArtUrl,
                 desaturate = !user.isPlaying,
-                frost = frostFor(ctx, mgr, widgetId, user, showsBar),
+                frost = frostFor(ctx, opts, widgetId, user, showsBar, compact),
             )
+            applyCompact(ctx, views, compact)
             views.setInt(R.id.tint, "setBackgroundColor", art.accent)
             art.bitmap?.let { views.setImageViewBitmap(R.id.art, it) }
             views.setViewVisibility(R.id.art, if (art.bitmap != null) View.VISIBLE else View.GONE)
@@ -145,8 +148,17 @@ class PlaybackWidget : AppWidgetProvider() {
 
                 else -> {
                     views.setTextViewText(R.id.track, user.trackName)
-                    views.setTextViewText(R.id.artist, user.artistName ?: "")
+                    // Compact has no status line, so it rides along after the
+                    // artist; ellipsizing at the end keeps the artist readable.
+                    val artist = user.artistName ?: ""
+                    val status = statusLine(user, now)
+                    views.setTextViewText(
+                        R.id.artist,
+                        if (compact && status.isNotEmpty()) "$artist · $status" else artist,
+                    )
                     when {
+                        compact -> hideProgress(views)
+
                         user.hasLikelyEnded(now) -> {
                             // Finished, and we do not know what is playing now.
                             // Show it complete and stopped rather than ticking on.
@@ -188,17 +200,20 @@ class PlaybackWidget : AppWidgetProvider() {
          */
         private fun frostFor(
             ctx: Context,
-            mgr: AppWidgetManager,
+            opts: Bundle,
             widgetId: Int,
             user: UserPlayback,
             showsBar: Boolean,
+            compact: Boolean,
         ): ArtCache.Frost? {
             if (!user.hasTrack) return null
             val dm = ctx.resources.displayMetrics
-            val opts = mgr.getAppWidgetOptions(widgetId)
-            val cardW = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) * dm.density
-            val cardH = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT) * dm.density
+            val cardWdp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+            val cardHdp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
+            val cardW = cardWdp * dm.density
+            val cardH = cardHdp * dm.density
             if (cardW <= 0f || cardH <= 0f) return null
+            android.util.Log.d("SpotifyDuo", "widget $widgetId ${cardWdp}x${cardHdp}dp compact=$compact")
 
             fun dp(v: Float) = v * dm.density
             fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, dm)
@@ -212,16 +227,18 @@ class PlaybackWidget : AppWidgetProvider() {
             val artist = paint(14f, bold = false)
             val small = paint(11f, bold = false)
 
-            val pad = dp(14f)
+            val pad = dp(if (compact) COMPACT_PAD_DP else FULL_PAD_DP)
             val avail = cardW - 2 * pad
             val textW = maxOf(
                 minOf(track.measureText(user.trackName ?: ""), avail),
                 minOf(artist.measureText(user.artistName ?: ""), avail),
             )
 
-            // Bar row keeps its 8dp top margin even when its children are gone.
-            val barRow = dp(8f) + if (showsBar) maxOf(dp(6f), lineH(small)) else 0f
-            val bottom = cardH - pad - lineH(small) - dp(2f) - barRow
+            // Bar row keeps its 8dp top margin even when its children are gone;
+            // compact removes the row and the status line entirely.
+            val barRow = if (compact) 0f else dp(8f) + if (showsBar) maxOf(dp(6f), lineH(small)) else 0f
+            val statusRow = if (compact) 0f else lineH(small) + dp(2f)
+            val bottom = cardH - pad - statusRow - barRow
             val top = bottom - lineH(track) - lineH(artist)
 
             val mx = dp(12f)
@@ -231,6 +248,24 @@ class PlaybackWidget : AppWidgetProvider() {
                 android.graphics.RectF(pad - mx, top - my, pad + textW + mx, bottom + my),
                 featherPx = dp(10f),
             )
+        }
+
+        private const val FULL_PAD_DP = 14f
+        private const val COMPACT_PAD_DP = 10f
+        /** Below this the full stack (chip, two lines, bar, status) no longer fits. */
+        private const val COMPACT_BELOW_DP = 125
+
+        private fun isCompact(opts: Bundle): Boolean {
+            val h = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
+            return h in 1 until COMPACT_BELOW_DP
+        }
+
+        /** Short cards: tighter padding, no bar row, no status line (it moves into the artist line). */
+        private fun applyCompact(ctx: Context, views: RemoteViews, compact: Boolean) {
+            val pad = ((if (compact) COMPACT_PAD_DP else FULL_PAD_DP) * ctx.resources.displayMetrics.density).toInt()
+            views.setViewPadding(R.id.content, pad, pad, pad, pad)
+            views.setViewVisibility(R.id.bar_row, if (compact) View.GONE else View.VISIBLE)
+            views.setViewVisibility(R.id.status, if (compact) View.GONE else View.VISIBLE)
         }
 
         private fun pickUser(ctx: Context, state: DuoState?): UserPlayback? {
